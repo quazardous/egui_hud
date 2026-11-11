@@ -49,7 +49,7 @@ needless_pass_by_value = "allow"
 
 [package]
 name = "egui_hud"
-version = "0.2.0"
+version = "0.2.1"
 description = "Controls as data for egui: a control's purpose, value, feel and representations, cards laid out on a slot engine, resolved in context, a value flow of gestures, and renderers on egui-pop"
 keywords = ["egui", "gui", "controls", "widgets", "layout"]
 categories = ["gui"]

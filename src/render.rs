@@ -524,6 +524,16 @@ pub trait Drawings {
         Verdict::Go
     }
 
+    /// Whether the sliders and knobs of part `key` open egui-pop's own
+    /// value menu on a right click (or the context menu key): "Type a
+    /// value", and "Reset" with a default. On by default; `false` for a
+    /// host that gives the part a menu of its own (in [`dress`](Self::dress)),
+    /// so a right click opens that menu alone. Its own "Type a value"
+    /// item can call egui-pop's `slider::request_typed_entry`.
+    fn value_menu(&mut self, _key: &str, _control: &Control) -> bool {
+        true
+    }
+
     /// The marks beside part `key`; `None` keeps the part's whole slot.
     fn marks(&mut self, _key: &str) -> Option<Marks> {
         None
@@ -1173,8 +1183,14 @@ fn managed(
             }
         }
         ValueSpec::Other { stored } => match stored {
-            ValueType::Points => Managed::edits(points(ui, key, label, rect, value)),
-            ValueType::Colour => Managed::edits(colour(ui, key, label, rect, value)),
+            ValueType::Points => {
+                let menu = drawings.value_menu(key, control);
+                Managed::edits(points(ui, key, label, rect, value, menu))
+            }
+            ValueType::Colour => {
+                let menu = drawings.value_menu(key, control);
+                Managed::edits(colour(ui, key, label, rect, value, menu))
+            }
             ValueType::Text => {
                 let mut text = match value {
                     Value::Text(t) => t.clone(),
@@ -1230,8 +1246,16 @@ fn lamp(ui: &mut Ui, on: bool, label: &str) -> egui::Response {
 
 /// The `points` value type's standard renderer: one numbered row per
 /// point, its x and y as compact sliders over 0 to 1, in as many rows as
-/// the rect holds (scrolled beyond).
-fn points(ui: &mut Ui, key: &str, label: &str, rect: Rect, value: &mut Value) -> Vec<Edit> {
+/// the rect holds (scrolled beyond); `menu`, whether each slider opens
+/// egui-pop's value menu.
+fn points(
+    ui: &mut Ui,
+    key: &str,
+    label: &str,
+    rect: Rect,
+    value: &mut Value,
+    menu: bool,
+) -> Vec<Edit> {
     let mut list = match value {
         Value::Floats(l) => l.clone(),
         _ => Vec::new(),
@@ -1262,6 +1286,7 @@ fn points(ui: &mut Ui, key: &str, label: &str, rect: Rect, value: &mut Value) ->
                         .precision(3)
                         .compact()
                         .size(vec2(half, row))
+                        .menu(menu)
                         .show(ui);
                         for c in &out.changes {
                             *changed = Some(changed.unwrap_or(false) || c.done);
@@ -1292,8 +1317,16 @@ fn points(ui: &mut Ui, key: &str, label: &str, rect: Rect, value: &mut Value) ->
 }
 
 /// The `colour` value type's standard renderer: a swatch, then its
-/// channels (hue in turns, chroma, luminance) as compact sliders.
-fn colour(ui: &mut Ui, key: &str, label: &str, rect: Rect, value: &mut Value) -> Vec<Edit> {
+/// channels (hue in turns, chroma, luminance) as compact sliders;
+/// `menu`, whether each opens egui-pop's value menu.
+fn colour(
+    ui: &mut Ui,
+    key: &str,
+    label: &str,
+    rect: Rect,
+    value: &mut Value,
+    menu: bool,
+) -> Vec<Edit> {
     let mut list = match value {
         Value::Floats(l) => l.clone(),
         _ => Vec::new(),
@@ -1328,6 +1361,7 @@ fn colour(ui: &mut Ui, key: &str, label: &str, rect: Rect, value: &mut Value) ->
             .precision(3)
             .compact()
             .size(vec2(w, row.min(rect.height())))
+            .menu(menu)
             .show(ui);
         for c in &out.changes {
             changed = Some(changed.unwrap_or(false) || c.done);
@@ -1465,7 +1499,9 @@ fn number_with(
             } else {
                 vec2(rect.width(), row.min(rect.height()))
             };
-            let mut s = configure(Slider::new(value, label, soft.0..=soft.1), control).size(size);
+            let mut s = configure(Slider::new(value, label, soft.0..=soft.1), control)
+                .size(size)
+                .menu(drawings.value_menu(key, control));
             if control.feel.response == Response::Logarithmic {
                 s = s.logarithmic();
             }
@@ -1569,7 +1605,9 @@ fn knob_in(
 ) -> Output {
     let soft = control.value.number().map_or((0.0, 1.0), |n| n.soft);
     let free = detents_off(ui);
-    let mut k = Knob::new(value, label, soft.0..=soft.1).size(rect.size());
+    let mut k = Knob::new(value, label, soft.0..=soft.1)
+        .size(rect.size())
+        .menu(drawings.value_menu(key, control));
     if let Some(n) = control.value.number() {
         k = k
             .hard(n.hard.0..=n.hard.1)
@@ -1882,6 +1920,94 @@ mod tests {
             assert_eq!(
                 vertical,
                 orientation == Orientation::Vertical && representation == Representation::Full
+            );
+        }
+    }
+
+    /// A host whose parts have a menu of their own.
+    struct OwnMenu;
+
+    impl Drawings for OwnMenu {
+        fn draw(
+            &mut self,
+            _: &mut Ui,
+            _: &str,
+            _: &Control,
+            _: Rect,
+            _: &mut Value,
+        ) -> Option<Vec<Edit>> {
+            None
+        }
+
+        fn value_menu(&mut self, _: &str, _: &Control) -> bool {
+            false
+        }
+    }
+
+    /// Whether a right click on the amount drawn as `variant` (a slider
+    /// or a knob) opens egui-pop's value menu, with `drawings` as host.
+    fn right_click_opens_the_value_menu(variant: &str, drawings: &mut dyn Drawings) -> bool {
+        let (r, _) = card_of_three();
+        let amount = r.get("implicit:node/n/amount").unwrap();
+        let look = Look {
+            variant: Some(variant.to_owned()),
+            ..Look::managed(Representation::Full, Orientation::Horizontal)
+        };
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let rect = Rect::from_min_size(pos2(10.0, 10.0), vec2(160.0, 64.0));
+        let mut v = 0.5;
+        let mut names = Vec::new();
+        let click = rect.center();
+        let button = |pressed| egui::Event::PointerButton {
+            pos: click,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        let inputs = [
+            vec![egui::Event::PointerMoved(click)],
+            vec![button(true)],
+            vec![button(false)],
+            Vec::new(),
+            Vec::new(),
+        ];
+        for events in inputs {
+            let input = egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(400.0, 300.0))),
+                events,
+                ..Default::default()
+            };
+            let mut full = ctx.run_ui(input, |ui| {
+                let _ = number_with(
+                    ui, "amount", amount, "Amount", &look, rect, &mut v, drawings,
+                );
+            });
+            full.textures_delta.clear();
+            names = full
+                .platform_output
+                .accesskit_update
+                .map(|u| {
+                    u.nodes
+                        .iter()
+                        .filter_map(|(_, n)| n.label().map(str::to_owned))
+                        .collect()
+                })
+                .unwrap_or_default();
+        }
+        names.iter().any(|n| n == "Type a value")
+    }
+
+    #[test]
+    fn a_host_with_its_own_menu_turns_the_value_menu_of_sliders_and_knobs_off() {
+        for variant in ["slider", "knob"] {
+            assert!(
+                right_click_opens_the_value_menu(variant, &mut NoDrawings),
+                "{variant}: egui-pop's menu by default"
+            );
+            assert!(
+                !right_click_opens_the_value_menu(variant, &mut OwnMenu),
+                "{variant}: the host's menu alone"
             );
         }
     }
