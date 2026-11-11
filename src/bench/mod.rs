@@ -936,7 +936,9 @@ fn source_name(source: Source) -> &'static str {
         Source::Size => "the slot engine: no room in the box",
         Source::Changed => "a changed value is never folded",
         Source::Revealed => "revealed for the moment",
-        Source::Deferred => "anti-jump: waits for the pointer to leave",
+        Source::Deferred => {
+            "held still while your pointer is on the bench, so nothing moves under your hand"
+        }
         Source::Fallback => "the physical limits: a fallback",
     }
 }

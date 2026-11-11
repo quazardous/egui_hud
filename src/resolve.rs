@@ -973,10 +973,16 @@ fn hold_still(out: &mut CardPlacement, prev: &CardPlacement, moment: &Moment) {
         // Keep where it was and how it showed; take what does not move
         // (emphasis, chips, grown hit areas, the changed mark).
         let (emphasised, chip, grown, changed) = (p.emphasised, p.chip, p.grown, p.changed);
-        let mut reasons = old.reasons.clone();
+        // One wait at most: a part held frame after frame keeps one.
+        let mut reasons: Vec<Reason> = old
+            .reasons
+            .iter()
+            .filter(|r| r.source != Source::Deferred)
+            .cloned()
+            .collect();
         reasons.push(Reason::new(
             Source::Deferred,
-            "Waits until the pointer leaves the panel",
+            "Moves once your pointer leaves the panel",
         ));
         *p = Placement {
             emphasised,
@@ -1117,4 +1123,56 @@ pub fn reachable_everywhere(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::card::CardItem;
+    use crate::context::{CardBox, Detail};
+    use crate::model::Surface;
+    use crate::value::ParamDescriptor;
+
+    #[test]
+    fn a_part_held_frame_after_frame_carries_one_wait() {
+        let control = crate::implicit("test/a", &ParamDescriptor::float("A", 0.0, 1.0, 0.5));
+        let id = control.id.clone();
+        let registry = Registry::with(vec![control]).unwrap();
+        let card = Card::new(vec![
+            CardItem::control("a", &id).tier(crate::Tier::Expert),
+            CardItem::control("b", &id),
+        ]);
+        let mut keys = ContextKeys::new(CardBox::new(Surface::Panel, 24, 240));
+        let layouts = Layouts::default();
+        let values = Values::new();
+        let still = Moment::default();
+        let mut prev = resolve(&registry, &card, &keys, &layouts, &values, &still, None).unwrap();
+        // The detail changes while the pointer is on the panel: the
+        // expert part would show, it waits, frame after frame.
+        keys.detail = Detail::Expert;
+        let hand = Moment {
+            pointer_in_panel: true,
+            ..Moment::default()
+        };
+        for _ in 0..4 {
+            prev = resolve(
+                &registry,
+                &card,
+                &keys,
+                &layouts,
+                &values,
+                &hand,
+                Some(&prev),
+            )
+            .unwrap();
+        }
+        let a = prev.get("a").unwrap();
+        assert!(a.deferred, "{a:#?}");
+        let waits = a
+            .reasons
+            .iter()
+            .filter(|r| r.source == Source::Deferred)
+            .count();
+        assert_eq!(waits, 1, "{:#?}", a.reasons);
+    }
 }
