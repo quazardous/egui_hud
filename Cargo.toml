@@ -12,13 +12,12 @@ repository = "https://github.com/quazardous/egui_hud"
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# The UI library the renderers draw with. Pinned to a commit while the two
-# move together.
-egui-pop = { git = "https://github.com/quazardous/egui-pop", rev = "8d843bef", default-features = false, features = ["eframe", "bundled-fonts"] }
+# The UI library the renderers draw with.
+egui-pop = { version = "0.8", default-features = false, features = ["eframe", "bundled-fonts"] }
 # egui-pop's logic without egui: `when` clauses over the context keys.
-egui-pop-model = { git = "https://github.com/quazardous/egui-pop", rev = "8d843bef" }
-# The slot layout engine. Pinned to a commit until it is published.
-egui_fit = { git = "https://github.com/quazardous/egui_fit", rev = "0fe36629a70c37e9ef3c7ee5b5d769713d5f08de", features = ["serde"] }
+egui-pop-model = "0.6"
+# The slot layout engine.
+egui_fit = { version = "0.1", features = ["serde"] }
 
 [workspace.lints.rust]
 unsafe_code = "deny"

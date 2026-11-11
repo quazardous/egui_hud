@@ -1,6 +1,8 @@
 # egui_hud
 
 [<img alt="github" src="https://img.shields.io/badge/github-quazardous/egui__hud-8da0cb?logo=github" height="20">](https://github.com/quazardous/egui_hud)
+[![Latest version](https://img.shields.io/crates/v/egui_hud.svg)](https://crates.io/crates/egui_hud)
+[![Documentation](https://docs.rs/egui_hud/badge.svg)](https://docs.rs/egui_hud)
 [![CI](https://github.com/quazardous/egui_hud/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/quazardous/egui_hud/actions/workflows/ci.yml)
 [![Demo](https://github.com/quazardous/egui_hud/actions/workflows/pages.yml/badge.svg?branch=main)](https://quazardous.github.io/egui_hud/)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
@@ -125,10 +127,11 @@ or on the desktop with `cargo run -p egui_hud_demo`.
 
 ## Status
 
-Version 0, not published. The API may change. egui_hud was developed
-inside [Helios](https://github.com/quazardous/helios), a photo editor that
-uses it for its module cards, and moved to its own repository once its
-model settled.
+Version 0, on crates.io. The API may still change between minor
+versions while it settles. egui_hud was developed inside
+[Helios](https://github.com/quazardous/helios), a photo editor that uses
+it for its module cards, and moved to its own repository once its model
+settled.
 
 ## License
 
