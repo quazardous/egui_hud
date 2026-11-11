@@ -114,31 +114,3 @@ fn the_bench_commands_add_set_up_and_keep() {
         assert!(b.shelf.get(g.name()).is_some_and(|e| e.generic), "{g:?}");
     }
 }
-
-#[test]
-fn a_generic_control_clicked_on_the_shelf_opens_its_set_up_headless() {
-    use egui_kittest::Harness;
-    use egui_kittest::kittest::Queryable as _;
-
-    let mut h = Harness::builder()
-        .with_size(egui_pop::egui::vec2(1400.0, 1000.0))
-        .build_ui_state(
-            |ui, d: &mut egui_hud_demo::Demo| d.ui(ui),
-            egui_hud_demo::Demo::new(),
-        );
-    h.run_steps(2);
-    // The shelf scrolls: search it first.
-    h.get_by_label("Search the shelf").type_text("toggle");
-    h.run_steps(2);
-    h.get_by_label("Shelf: Toggle").click_accesskit();
-    h.run_steps(2);
-    let setup = h.state().page.setup.clone().expect("its set-up opens");
-    assert_eq!(setup.key, "toggle");
-    let text = egui_pop::egui::accesskit::Role::TextInput;
-    h.get_by_role_and_label(text, "Name").focus();
-    h.run_steps(1);
-    h.get_by_role_and_label(text, "Name").type_text(" switch");
-    h.run_steps(2);
-    let c = h.state().page.bench.settings("toggle").unwrap();
-    assert_eq!(c.settings.label, "Toggle switch");
-}

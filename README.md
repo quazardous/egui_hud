@@ -1,8 +1,8 @@
 # egui_hud
 
 **[Live demo](https://quazardous.github.io/egui_hud/)**: a mixer channel
-and a light, declared as data, composed on the bench and laid out as the
-bench is resized.
+and a light, declared as data, in a box laid out as it is resized, beside
+previews of what each control does.
 
 Controls as data for [egui](https://github.com/emilk/egui) applications:
 what a control is (purpose, value, units, ranges, feel, detents,
@@ -98,8 +98,8 @@ register a face overriding how a value type is drawn (a host's
 ## Demo
 
 **[Try it in a browser](https://quazardous.github.io/egui_hud/)**:
-a mixer channel and a light, declared as data, on the bench, with a
-channel strip and a lamp that show what each control does
+a mixer channel and a light, declared as data, in a box you resize,
+with a channel strip and a lamp that show what each control does
 ([source](demo)). The demo (`demo/`, not published) runs in a browser with
 [Trunk](https://trunkrs.dev):
 

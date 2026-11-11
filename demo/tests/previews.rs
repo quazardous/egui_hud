@@ -1,6 +1,6 @@
 //! The previews: every mixer control changes the channel strip, every
 //! light control changes the lamp, through pure functions of the values,
-//! and through the controls on the bench.
+//! and through the controls in the box.
 
 use egui_hud::{Value, ValueStore as _};
 use egui_hud_demo::Demo;
@@ -157,11 +157,11 @@ fn each_light_control_changes_the_lamp() {
 #[test]
 fn the_previews_read_the_controls_on_the_bench() {
     let mut d = Demo::new();
-    d.page.bench.load_preset("Mixer channel").unwrap();
+    d.load_preset("Mixer channel").unwrap();
     let before = d.channel();
     assert_eq!(before.name, "Vocals");
     let path = |k: &str| egui_hud::bench::path_of(k);
-    let s = &mut d.page.bench.store;
+    let s = &mut d.bench.store;
     for (key, to) in [
         ("low-cut", Value::Bool(true)),
         ("mute", Value::Bool(true)),
@@ -181,6 +181,6 @@ fn the_previews_read_the_controls_on_the_bench() {
     // The light's controls are not on the bench: the lamp reads their
     // defaults, then the bench once its preset is loaded.
     assert_eq!(d.light().effect, "Steady");
-    d.page.bench.load_preset("Light").unwrap();
+    d.load_preset("Light").unwrap();
     assert_eq!(d.light().intensity, 0.75);
 }

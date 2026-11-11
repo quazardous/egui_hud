@@ -1,4 +1,4 @@
-//! The bench resized by its width handle: every width resolves in time,
+//! The box resized by its right edge: every width resolves in time,
 //! and the handle stays under the pointer, past either end of the range
 //! too, so the pointer never lands on the bench mid-drag and the bench
 //! never waits for it to leave (anti-jump) while it is being resized.
@@ -80,10 +80,10 @@ fn the_width_handle_stays_under_the_pointer_past_either_end() {
             let mut h = Harness::builder()
                 .with_size(vec2(1280.0, 900.0))
                 .build_ui_state(|ui, d: &mut Demo| d.ui(ui), Demo::new());
-            h.state_mut().page.bench.load_preset(preset).unwrap();
+            h.state_mut().load_preset(preset).unwrap();
             h.run_steps(3);
-            let start = h.get_by_label_contains("Bench width").rect().center();
-            let width = h.state().page.bench.width;
+            let start = h.get_by_label_contains("Box width").rect().center();
+            let width = h.state().bench.width;
             h.hover_at(start);
             h.step();
             h.drag_at(start);
@@ -98,13 +98,13 @@ fn the_width_handle_stays_under_the_pointer_past_either_end() {
                 h.step();
                 let e = t.elapsed();
                 let s = h.state();
-                let b = &s.page.bench;
+                let b = &s.bench;
                 assert!(e < Duration::from_secs(2), "{preset}, step {i}: {e:?}");
                 assert!(
                     !b.pointer_in,
                     "{preset}, step {i}: the hand counts as on the bench"
                 );
-                let last = s.page.last.as_ref().unwrap();
+                let last = s.last.as_ref().unwrap();
                 assert!(
                     !last.pending,
                     "{preset}, step {i}: the bench waits for the pointer"
@@ -117,7 +117,7 @@ fn the_width_handle_stays_under_the_pointer_past_either_end() {
                     at.x
                 );
             }
-            assert!((h.state().page.bench.width - width).abs() < 0.5);
+            assert!((h.state().bench.width - width).abs() < 0.5);
             h.drop_at(at);
             h.step();
         });

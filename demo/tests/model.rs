@@ -1,11 +1,9 @@
 //! The demo's model, headless: the catalogue loads, every preset loads
 //! and keeps its controls reachable, the gain steps down from a fader to
 //! a knob to a scrub field as the bench narrows, the folding preset
-//! gathers parts under "More (n)", values undo and redo, and a bench
-//! round-trips as text.
+//! gathers parts under "More (n)", and values undo and redo.
 
 use egui_hud::Representation;
-use egui_hud::bench::BenchMode;
 use egui_hud::flow::Cause;
 use egui_hud::render::{Change, Drawn, Edit};
 use egui_hud::slot::{Fallback, Orientation};
@@ -127,23 +125,6 @@ fn a_change_is_one_undo_step_and_undoes() {
 }
 
 #[test]
-fn a_bench_round_trips_as_text_and_bad_text_changes_nothing() {
-    let mut d = Demo::new();
-    assert!(d.error.is_none());
-    d.page.bench.load_preset("Light on a toolbar").unwrap();
-    d.page.save_text();
-    let saved = d.page.text.clone();
-    d.page.bench.load_preset("Mixer channel").unwrap();
-    d.page.text = "{ not a bench".into();
-    d.page.load_text();
-    assert_eq!(d.page.bench.mode, BenchMode::Panel);
-    d.page.text = saved;
-    d.page.load_text();
-    assert_eq!(d.page.bench.mode, BenchMode::Toolbar);
-    assert!(d.page.bench.composition.holds("colour"));
-}
-
-#[test]
 fn the_meter_follows_the_gain_and_falls_silent_when_muted() {
     assert_eq!(signal(0.0, true, 1.0), SILENCE);
     assert!(signal(0.0, false, 0.4) > signal(-40.0, false, 0.4));
@@ -157,18 +138,14 @@ fn the_page_draws_headless_with_its_fader_meter_and_fallbacks() {
         .with_size(egui_pop::egui::vec2(1280.0, 900.0))
         .build_ui_state(|ui, d: &mut Demo| d.ui(ui), Demo::new());
     h.run_steps(3);
-    let drawn = &h.state().page.drawn;
+    let drawn = &h.state().drawn;
     assert_eq!(drawn.get(GAIN), Some(&Drawn::Integrated), "{drawn:?}");
     assert_eq!(drawn.get(METER), Some(&Drawn::Integrated));
     assert_eq!(drawn.get("eq"), Some(&Drawn::Integrated));
-    h.state_mut()
-        .page
-        .bench
-        .load_preset("Narrow: knob")
-        .unwrap();
+    h.state_mut().load_preset("Narrow: knob").unwrap();
     h.run_steps(3);
     assert_eq!(
-        h.state().page.drawn.get(GAIN),
+        h.state().drawn.get(GAIN),
         Some(&Drawn::Fallback(Fallback::Variant("knob".into())))
     );
 }
@@ -225,11 +202,7 @@ fn the_more_entries_unfold_inside_the_bench_frame() {
     let mut h = Harness::builder()
         .with_size(egui_pop::egui::vec2(1280.0, 1400.0))
         .build_ui_state(|ui, d: &mut Demo| d.ui(ui), Demo::new());
-    h.state_mut()
-        .page
-        .bench
-        .load_preset("Folding: More")
-        .unwrap();
+    h.state_mut().load_preset("Folding: More").unwrap();
     h.run_steps(3);
     let more = h
         .get_all_by(|n| n.label().is_some_and(|l| l.starts_with("More")))
@@ -241,7 +214,7 @@ fn the_more_entries_unfold_inside_the_bench_frame() {
         .unwrap()
         .click_accesskit();
     h.run_steps(3);
-    let zone = h.state().page.zone().expect("the bench drawn");
+    let zone = h.state().zone.expect("the bench drawn");
     assert!(zone.contains_rect(more), "{more:?} in {zone:?}");
     let shown: Vec<_> = h
         .get_all_by(|n| n.label().is_some_and(|l| l.starts_with("Show ")))

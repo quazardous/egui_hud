@@ -1,4 +1,4 @@
-//! The previews: what the controls on the bench drive, so every control
+//! The previews: what the controls in the box drive, so every control
 //! shows what it does.
 //!
 //! - [`strip`]: a mixer channel strip from the mixer controls: a
@@ -282,7 +282,7 @@ pub fn paint_strip(ui: &mut Ui, s: &Strip) {
         reading(s.right)
     );
     r.widget_info(|| WidgetInfo::labeled(Role::Image, true, &name));
-    let _ = r.on_hover_text("Driven by the mixer controls on the bench: low cut and EQ shape the spectrum, gain and mute the level, pan splits it left and right; name and colour tag label the strip");
+    let _ = r.on_hover_text("Driven by the mixer controls in the box: low cut and EQ shape the spectrum, gain and mute the level, pan splits it left and right; name and colour tag label the strip");
     let v = ui.visuals().clone();
     let painter = ui.painter();
     painter.rect(
@@ -368,7 +368,7 @@ pub fn paint_lamp(ui: &mut Ui, l: &Lamp) {
     let (rect, r) = ui.allocate_exact_size(vec2(SIZE.y + 60.0, SIZE.y), Sense::hover());
     let name = format!("Lamp preview: brightness {:.0}%", l.brightness * 100.0);
     r.widget_info(|| WidgetInfo::labeled(Role::Image, true, &name));
-    let _ = r.on_hover_text("Driven by the light controls on the bench: power, intensity, temperature, colour, hue and effect");
+    let _ = r.on_hover_text("Driven by the light controls in the box: power, intensity, temperature, colour, hue and effect");
     let v = ui.visuals().clone();
     let painter = ui.painter();
     painter.rect(

@@ -1,6 +1,6 @@
 [package]
 name = "egui_hud_demo"
-description = "A web demo of egui_hud: a neutral catalogue of controls (a mixer channel, a light) declared as data, composed on the bench and laid out by egui_fit"
+description = "A web demo of egui_hud: real controls (a mixer channel, a light) declared as data, in a box laid out by egui_fit, beside previews of what they drive"
 version = "0.0.0"
 edition.workspace = true
 rust-version.workspace = true
