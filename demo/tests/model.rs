@@ -18,10 +18,21 @@ fn the_catalogue_loads_and_every_preset_resolves_with_every_part_reachable() {
     for id in [GAIN, "pan", METER, "intensity", "temperature"] {
         assert!(kit.registry.get(id).is_some(), "{id} registered");
     }
-    // A plain toggle or choice is the generic control, as a parameter.
-    for id in ["mute", "tag", "power", "effect"] {
+    // A plain toggle or choice is the generic control, configured: a
+    // preset of it with its name and line.
+    for id in [
+        "mute",
+        "tag",
+        "power",
+        "effect",
+        "low-cut",
+        "eq",
+        "name",
+        "light-colour",
+    ] {
         assert!(kit.registry.get(id).is_none(), "{id} not registered");
-        assert!(kit.parameters.iter().any(|p| p.name == id), "{id} offered");
+        let c = kit.configured.iter().find(|p| p.name == id).expect(id);
+        assert!(c.settings.line.len() > 20, "{id} has a line in plain words");
     }
     assert!(kit.presets.len() >= 5);
     let mut b = bench().unwrap();

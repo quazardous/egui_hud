@@ -3,7 +3,7 @@
     {
       "id": "gain",
       "label": "Gain",
-      "purpose": "Raise or lower the channel's level, in decibels",
+      "purpose": "Raises or lowers the channel's level, in decibels",
       "value": {
         "type": "number",
         "hard": [
@@ -100,7 +100,7 @@
     {
       "id": "pan",
       "label": "Pan",
-      "purpose": "Place the channel between the left and the right speaker",
+      "purpose": "Places the channel between the left and the right speaker",
       "value": {
         "type": "number",
         "hard": [
@@ -171,7 +171,7 @@
     {
       "id": "meter",
       "label": "Level",
-      "purpose": "Show the channel's level as it plays, in decibels",
+      "purpose": "Shows how loud the channel plays, in decibels",
       "kind": "indicator",
       "value": {
         "type": "number",
@@ -252,7 +252,7 @@
     {
       "id": "intensity",
       "label": "Intensity",
-      "purpose": "Set how bright the light is",
+      "purpose": "Sets how bright the light is",
       "value": {
         "type": "number",
         "hard": [
@@ -317,7 +317,7 @@
     {
       "id": "temperature",
       "label": "Temperature",
-      "purpose": "Set the light's white, from warm to cold, in kelvin",
+      "purpose": "Sets the light's white, from warm (orange) to cool (blue), in kelvin",
       "value": {
         "type": "number",
         "hard": [
@@ -389,7 +389,7 @@
     {
       "id": "hue",
       "label": "Hue",
-      "purpose": "Turn the light's colour round the colour circle, in degrees",
+      "purpose": "Turns the light's tint round the colour circle, in degrees",
       "value": {
         "type": "number",
         "hard": [
@@ -458,226 +458,98 @@
     "temperature": "Light",
     "hue": "Light"
   },
-  "parameters": [
+  "configured": [
     {
       "name": "mute",
       "group": "Mixer channel",
-      "hint": "A toggle, from its descriptor",
-      "descriptor": {
-        "ty": "bool",
-        "label": "Mute",
-        "description": "Silence the channel without losing its level",
-        "default": {
-          "Bool": false
-        },
-        "hard": null,
-        "soft": null,
-        "step": 0.01,
-        "coarse": 0.1,
-        "unit": null,
-        "display_scale": 1.0,
-        "precision": 2,
-        "choices": [],
-        "logarithmic": false,
-        "widget": null,
-        "module": null
-      }
+      "generic": "toggle",
+      "label": "Mute",
+      "line": "Silences the channel without losing its level"
     },
     {
       "name": "eq",
       "group": "Mixer channel",
-      "hint": "A curve, drawn by egui-pop's editor; its points as rows where it does not fit",
-      "descriptor": {
-        "ty": "floats",
-        "label": "EQ curve",
-        "description": "The channel's equaliser, as gain over frequency",
-        "default": {
-          "Floats": [
-            0.0,
-            0.5,
-            0.2,
-            0.62,
-            0.5,
-            0.45,
-            0.8,
-            0.58,
-            1.0,
-            0.5
-          ]
-        },
-        "hard": null,
-        "soft": null,
-        "step": 0.01,
-        "coarse": 0.1,
-        "unit": null,
-        "display_scale": 1.0,
-        "precision": 2,
-        "choices": [],
-        "logarithmic": false,
-        "widget": "curve",
-        "module": null
-      }
+      "generic": "curve",
+      "label": "EQ curve",
+      "line": "Shapes the sound: raise or lower each part of the spectrum, bass on the left, treble on the right",
+      "default": [
+        0.0,
+        0.5,
+        0.2,
+        0.62,
+        0.5,
+        0.45,
+        0.8,
+        0.58,
+        1.0,
+        0.5
+      ]
     },
     {
       "name": "low-cut",
       "group": "Mixer channel",
-      "hint": "A toggle, from its descriptor",
-      "descriptor": {
-        "ty": "bool",
-        "label": "Low cut",
-        "description": "Cut the lowest frequencies",
-        "default": {
-          "Bool": false
-        },
-        "hard": null,
-        "soft": null,
-        "step": 0.01,
-        "coarse": 0.1,
-        "unit": null,
-        "display_scale": 1.0,
-        "precision": 2,
-        "choices": [],
-        "logarithmic": false,
-        "widget": null,
-        "module": null
-      }
+      "generic": "toggle",
+      "label": "Low cut",
+      "line": "Removes the lowest frequencies, rumble and hum"
     },
     {
       "name": "name",
       "group": "Mixer channel",
-      "hint": "A text field, from its descriptor",
-      "descriptor": {
-        "ty": "text",
-        "label": "Channel name",
-        "description": "The name on the channel's strip",
-        "default": {
-          "Text": "Vocals"
-        },
-        "hard": null,
-        "soft": null,
-        "step": 0.01,
-        "coarse": 0.1,
-        "unit": null,
-        "display_scale": 1.0,
-        "precision": 2,
-        "choices": [],
-        "logarithmic": false,
-        "widget": null,
-        "module": null
-      }
+      "generic": "text",
+      "label": "Channel name",
+      "line": "The name written on the channel's strip",
+      "default": "Vocals"
     },
     {
       "name": "tag",
       "group": "Mixer channel",
-      "hint": "A choice, from its descriptor",
-      "descriptor": {
-        "ty": "choice",
-        "label": "Colour tag",
-        "description": "Mark the channel with a colour, to find it on a large desk",
-        "default": {
-          "Choice": "None"
-        },
-        "hard": null,
-        "soft": null,
-        "step": 0.01,
-        "coarse": 0.1,
-        "unit": null,
-        "display_scale": 1.0,
-        "precision": 2,
-        "choices": [
-          "None",
-          "Red",
-          "Orange",
-          "Yellow",
-          "Green",
-          "Blue",
-          "Purple"
-        ],
-        "logarithmic": false,
-        "widget": null,
-        "module": null
-      }
+      "generic": "choice",
+      "label": "Colour tag",
+      "line": "Marks the channel with a colour, to find it on a large desk",
+      "choices": [
+        "None",
+        "Red",
+        "Orange",
+        "Yellow",
+        "Green",
+        "Blue",
+        "Purple"
+      ],
+      "default": "None"
     },
     {
       "name": "power",
       "group": "Light",
-      "hint": "A toggle, from its descriptor",
-      "descriptor": {
-        "ty": "bool",
-        "label": "Power",
-        "description": "Switch the light on or off",
-        "default": {
-          "Bool": true
-        },
-        "hard": null,
-        "soft": null,
-        "step": 0.01,
-        "coarse": 0.1,
-        "unit": null,
-        "display_scale": 1.0,
-        "precision": 2,
-        "choices": [],
-        "logarithmic": false,
-        "widget": null,
-        "module": null
-      }
+      "generic": "toggle",
+      "label": "Power",
+      "line": "Switches the light on or off",
+      "default": true
     },
     {
       "name": "light-colour",
       "group": "Light",
-      "hint": "A colour wheel, drawn by egui-pop; a swatch and its channels where it does not fit",
-      "descriptor": {
-        "ty": "floats",
-        "label": "Colour",
-        "description": "The light's hue, saturation and brightness",
-        "default": {
-          "Floats": [
-            0.08,
-            0.6,
-            0.5
-          ]
-        },
-        "hard": null,
-        "soft": null,
-        "step": 0.01,
-        "coarse": 0.1,
-        "unit": null,
-        "display_scale": 1.0,
-        "precision": 2,
-        "choices": [],
-        "logarithmic": false,
-        "widget": "wheel",
-        "module": null
-      }
+      "generic": "colour",
+      "label": "Colour",
+      "line": "Tints the light: the colour's hue, how strong it is, and its brightness",
+      "default": [
+        0.08,
+        0.6,
+        0.5
+      ]
     },
     {
       "name": "effect",
       "group": "Light",
-      "hint": "A choice, from its descriptor",
-      "descriptor": {
-        "ty": "choice",
-        "label": "Effect",
-        "description": "Animate the light: steady, a slow fade, a pulse or a strobe",
-        "default": {
-          "Choice": "Steady"
-        },
-        "hard": null,
-        "soft": null,
-        "step": 0.01,
-        "coarse": 0.1,
-        "unit": null,
-        "display_scale": 1.0,
-        "precision": 2,
-        "choices": [
-          "Steady",
-          "Fade",
-          "Pulse",
-          "Strobe"
-        ],
-        "logarithmic": false,
-        "widget": null,
-        "module": null
-      }
+      "generic": "choice",
+      "label": "Effect",
+      "line": "Animates the light: steady, a slow fade, a pulse or a strobe",
+      "choices": [
+        "Steady",
+        "Fade",
+        "Pulse",
+        "Strobe"
+      ],
+      "default": "Steady"
     }
   ],
   "implicit": true,

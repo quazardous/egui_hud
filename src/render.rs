@@ -677,6 +677,12 @@ pub fn card(
                 moved,
             },
         );
+        // Its line, in plain words, when the pointer rests on it.
+        if !control.purpose.is_empty()
+            && let Some(r) = out.label.as_ref().or(out.response.as_ref())
+        {
+            let _ = r.clone().on_hover_ui(|ui| line(ui, control));
+        }
         edits.extend(out.edits);
         drawn.insert(p.key.clone(), out.drawn);
     }
@@ -695,6 +701,14 @@ pub fn card(
         events,
         drawn,
     }
+}
+
+/// A control's line, as its tooltip shows it: its name, then what it
+/// does (its purpose), in plain words.
+pub fn line(ui: &mut Ui, control: &Control) {
+    ui.set_max_width(280.0);
+    ui.strong(&control.label);
+    ui.label(&control.purpose);
 }
 
 /// A part's value at its control's default.

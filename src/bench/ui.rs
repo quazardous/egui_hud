@@ -27,6 +27,10 @@
 //! - **The placement and reason pane**, in the values column, says per
 //!   control its slot, orientation, representation, visibility, why, and
 //!   what decided it.
+//! - **Set up**: a generic control added to the bench opens its set-up
+//!   (its name, its line, and per value type its range, step, unit,
+//!   choices, default); **Keep on the shelf** keeps it there as a
+//!   configured control, saved with the bench.
 //! - **Save** and **Load** keep a bench as text in a field (and as a file,
 //!   natively: `controls.bench.save`, `controls.bench.load`); a button per
 //!   preset of the kit loads it.
@@ -40,7 +44,8 @@ use egui_pop::egui::{
 use serde::Serialize;
 
 use super::{
-    Bench, BenchMode, Composition, EditorDrawings, Entry, Origin, Piece, Saved, ShelfEntry, Spot,
+    Bench, BenchMode, Composition, EditorDrawings, Entry, Generic, Origin, Piece, Saved, Settings,
+    ShelfEntry, Spot, slug,
 };
 use crate::context::{Density, Detail, Device, Task, Tier};
 use crate::model::{Representation, ValueType};
@@ -95,6 +100,35 @@ pub struct BenchPage {
     pub message: Option<String>,
     /// The host's drawings of its integrated controls.
     pub drawings: Box<dyn Drawings>,
+    /// The control being set up, with its settings as typed.
+    pub setup: Option<Draft>,
+}
+
+/// A control's settings as they are being typed in its set-up.
+#[derive(Clone, Debug)]
+pub struct Draft {
+    pub key: String,
+    pub generic: Generic,
+    pub settings: Settings,
+    /// The choices, one per line.
+    pub choices: String,
+    /// Why the settings as typed do not hold, when they do not.
+    pub error: Option<String>,
+}
+
+impl Draft {
+    /// The set-up of a control on the bench; `None` for a registered
+    /// control (its settings are its own).
+    pub fn of(bench: &Bench, key: &str) -> Option<Self> {
+        let c = bench.settings(key)?;
+        Some(Self {
+            key: key.to_owned(),
+            generic: c.generic,
+            choices: c.settings.choices.join("\n"),
+            settings: c.settings,
+            error: None,
+        })
+    }
 }
 
 /// Every input device (`ctl.device`).
@@ -148,6 +182,7 @@ impl BenchPage {
             text: String::new(),
             message: None,
             drawings: Box::new(EditorDrawings),
+            setup: None,
         }
     }
 
@@ -186,6 +221,7 @@ impl BenchPage {
                     self.context_bar(ui);
                     ui.separator();
                     self.toolbar(ui);
+                    self.setup_ui(ui);
                     ui.add_space(4.0);
                     self.bench_zone(ui);
                 },
@@ -232,11 +268,192 @@ impl BenchPage {
                     ui.strong(group);
                     for e in entries {
                         if self.shelf_entry(ui, &e) {
-                            let _ = self.bench.add(&e.name, None);
+                            let added = self.bench.add(&e.name, None);
+                            self.added(&e, added);
                         }
                     }
                 }
             });
+    }
+
+    /// A shelf entry put on the bench: a generic control opens its
+    /// set-up, to be named there.
+    fn added(&mut self, e: &ShelfEntry, added: Result<String, String>) {
+        match added {
+            Ok(key) if e.generic => self.setup = Draft::of(&self.bench, &key),
+            Ok(_) => {}
+            Err(err) => self.message = Some(err),
+        }
+    }
+
+    /// The set-up of a generic or configured control on the bench: its
+    /// name, its line, and per value type what applies. Each change sets
+    /// it up again at once; Keep on the shelf keeps it as a configured
+    /// control.
+    pub fn setup_ui(&mut self, ui: &mut Ui) {
+        let Some(mut d) = self.setup.take() else {
+            return;
+        };
+        if !self.bench.composition.holds(&d.key) {
+            return;
+        }
+        let mut changed = false;
+        let mut done = false;
+        let mut keep = false;
+        egui::Frame::group(ui.style()).show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.strong(format!("Set up {}", d.key));
+                ui.weak(format!("generic control of {}", d.generic.what()));
+            });
+            let text = |ui: &mut Ui, label: &str, value: &mut String, width: f32| {
+                ui.label(label);
+                let r = ui.add(egui::TextEdit::singleline(value).desired_width(width));
+                r.widget_info(|| WidgetInfo::labeled(Role::TextInput, true, label));
+                r.changed()
+            };
+            ui.horizontal(|ui| {
+                changed |= text(ui, "Name", &mut d.settings.label, 140.0);
+                changed |= text(ui, "What it does", &mut d.settings.line, 320.0);
+            });
+            let s = &mut d.settings;
+            ui.horizontal_wrapped(|ui| match d.generic {
+                Generic::Number | Generic::Whole => {
+                    let whole = d.generic == Generic::Whole;
+                    let (mut lo, mut hi) =
+                        s.range
+                            .unwrap_or(if whole { (0.0, 10.0) } else { (0.0, 1.0) });
+                    let number = |ui: &mut Ui, label: &str, v: &mut f64| {
+                        ui.label(label);
+                        let r = ui.add(egui::DragValue::new(v).speed(0.1));
+                        r.widget_info(|| WidgetInfo::labeled(Role::SpinButton, true, label));
+                        r.changed()
+                    };
+                    let mut range = number(ui, "From", &mut lo);
+                    range |= number(ui, "to", &mut hi);
+                    if range {
+                        s.range = Some((lo, hi));
+                        changed = true;
+                    }
+                    if !whole {
+                        let mut step = s.step.unwrap_or(0.0);
+                        if number(ui, "Step (0: a hundredth)", &mut step) {
+                            s.step = (step > 0.0).then_some(step);
+                            changed = true;
+                        }
+                        let mut unit = s.unit.clone().unwrap_or_default();
+                        if text(ui, "Unit", &mut unit, 50.0) {
+                            s.unit = (!unit.trim().is_empty()).then(|| unit.trim().to_owned());
+                            changed = true;
+                        }
+                    }
+                    let mut default = s
+                        .default
+                        .as_ref()
+                        .and_then(Json::as_f64)
+                        .unwrap_or(lo.max(0.0).min(hi));
+                    if number(ui, "Default", &mut default) {
+                        s.default = Some(json!(default));
+                        changed = true;
+                    }
+                }
+                Generic::Toggle => {
+                    let mut on = s.default.as_ref().and_then(Json::as_bool).unwrap_or(false);
+                    if ui.checkbox(&mut on, "On by default").changed() {
+                        s.default = Some(json!(on));
+                        changed = true;
+                    }
+                }
+                Generic::Choice => {
+                    ui.label("Choices, one per line");
+                    let r = ui.add(
+                        egui::TextEdit::multiline(&mut d.choices)
+                            .desired_rows(3)
+                            .desired_width(160.0),
+                    );
+                    r.widget_info(|| WidgetInfo::labeled(Role::TextInput, true, "Choices"));
+                    if r.changed() {
+                        s.choices = d
+                            .choices
+                            .lines()
+                            .map(|l| l.trim().to_owned())
+                            .filter(|l| !l.is_empty())
+                            .collect();
+                        if s.default
+                            .as_ref()
+                            .and_then(Json::as_str)
+                            .is_some_and(|c| !s.choices.iter().any(|x| x == c))
+                        {
+                            s.default = None;
+                        }
+                        changed = true;
+                    }
+                    let now = s.default.as_ref().and_then(Json::as_str).map(str::to_owned);
+                    let shown = now
+                        .clone()
+                        .or_else(|| s.choices.first().cloned())
+                        .unwrap_or_default();
+                    let mut picked = None;
+                    ui.label("Default");
+                    let r = egui::ComboBox::from_id_salt(("bench-setup-default", &d.key))
+                        .selected_text(shown.clone())
+                        .show_ui(ui, |ui| {
+                            for c in &s.choices {
+                                if ui.selectable_label(*c == shown, c).clicked() {
+                                    picked = Some(c.clone());
+                                }
+                            }
+                        })
+                        .response;
+                    r.widget_info(|| WidgetInfo::labeled(Role::ComboBox, true, "Default choice"));
+                    if let Some(c) = picked {
+                        s.default = Some(json!(c));
+                        changed = true;
+                    }
+                }
+                Generic::Text => {
+                    let mut t = s
+                        .default
+                        .as_ref()
+                        .and_then(Json::as_str)
+                        .unwrap_or_default()
+                        .to_owned();
+                    if text(ui, "Default text", &mut t, 160.0) {
+                        s.default = Some(json!(t));
+                        changed = true;
+                    }
+                }
+                Generic::Curve | Generic::Colour => {
+                    ui.weak(
+                        "Its points start where the generic control's do; drag them on the bench.",
+                    );
+                }
+            });
+            ui.horizontal(|ui| {
+                if let Some(e) = &d.error {
+                    ui.colored_label(ui.visuals().error_fg_color, e);
+                }
+                keep = ui
+                    .button("Keep on the shelf")
+                    .on_hover_text(
+                        "Keep it as a configured control on the shelf, saved with the bench",
+                    )
+                    .clicked();
+                done = ui.button("Done").clicked();
+            });
+        });
+        if changed {
+            d.error = self.bench.configure(&d.key, d.settings.clone()).err();
+        }
+        if keep && d.error.is_none() {
+            let name = slug(&d.settings.label);
+            match self.bench.keep(&d.key, Some(&name), None) {
+                Ok(n) => self.message = Some(format!("Kept `{n}` on the shelf")),
+                Err(e) => d.error = Some(e),
+            }
+        }
+        if !done {
+            self.setup = Some(d);
+        }
     }
 
     /// One shelf entry: its preview, label and hint. Dragged, it carries
@@ -471,6 +688,14 @@ impl BenchPage {
                         .response;
                     r.on_hover_text("Face: how the control is drawn");
                     p.variant = face;
+                }
+                if self.bench.settings(one).is_some()
+                    && ui
+                        .button("Set up")
+                        .on_hover_text("Name it, say what it does, set its range, unit or choices")
+                        .clicked()
+                {
+                    self.setup = Draft::of(&self.bench, one);
                 }
                 let pinned = self.bench.layout.parts.get(one).and_then(|l| l.visibility);
                 let mut hidden = pinned == Some(crate::resolve::Pinned::Hidden);
@@ -921,7 +1146,10 @@ impl BenchPage {
         if ui.input(|i| i.pointer.any_released()) {
             match payload.as_ref() {
                 Payload::Add(name) => {
-                    let _ = self.bench.add(name, Some(target));
+                    let added = self.bench.add(name, Some(target));
+                    if let Some(e) = self.bench.shelf.get(name).cloned() {
+                        self.added(&e, added);
+                    }
                 }
                 Payload::Move(key) => {
                     let to = self.landing(key, &target);

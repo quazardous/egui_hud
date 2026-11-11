@@ -92,6 +92,15 @@ impl Registry {
         Ok(())
     }
 
+    /// Registers a control, or puts it in place of the one of the same id
+    /// (a configured control set up again); checked as `register` checks.
+    pub fn replace(&mut self, control: Control) -> Result<(), String> {
+        let control = control.with_faces();
+        control.check()?;
+        self.controls.insert(control.id.clone(), control);
+        Ok(())
+    }
+
     /// Adds a module's patches; one naming an unknown control or jack, or
     /// a parameter already patched, is refused with the others kept.
     pub fn patch(&mut self, patches: impl IntoIterator<Item = Patch>) -> Vec<String> {

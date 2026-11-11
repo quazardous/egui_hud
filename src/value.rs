@@ -244,6 +244,31 @@ impl MemoryStore {
         self.params.insert(path.into(), (d.default.clone(), d));
     }
 
+    /// Declares a parameter again with another descriptor (a control set
+    /// up again): its value stays when it still fits (its type, its range,
+    /// its choices), else it goes to the new default. No undo step.
+    pub fn redeclare(&mut self, path: &str, d: ParamDescriptor) {
+        let fits = |v: &Value| {
+            let within = |x: f64| d.hard.is_none_or(|(lo, hi)| x >= lo && x <= hi);
+            match (v, d.ty) {
+                (Value::Float(x), ParamType::Float) => within(*x),
+                (Value::Int(i), ParamType::Int) => within(*i as f64),
+                (Value::Choice(c), ParamType::Choice) => d.choices.contains(c),
+                (Value::Bool(_), ParamType::Bool)
+                | (Value::Floats(_), ParamType::Floats)
+                | (Value::Text(_), ParamType::Text) => true,
+                _ => false,
+            }
+        };
+        let value = self
+            .params
+            .get(path)
+            .map(|(v, _)| v.clone())
+            .filter(fits)
+            .unwrap_or_else(|| d.default.clone());
+        self.params.insert(path.into(), (value, d));
+    }
+
     /// The undo steps, by label, oldest first.
     pub fn undo_steps(&self) -> &[String] {
         &self.steps

@@ -2,18 +2,23 @@
 //! composed and tried live, with no application behind them.
 //!
 //! A host hands the bench a [`Kit`]: its registry of controls, the shelf
-//! group of each, the parameters it offers as implicit controls, its
+//! group of each, its configured controls (presets of the generic ones), its
 //! presets and the tools its context bar offers.
 //!
 //! - The [`Shelf`] lists what can go on the bench: the registered
-//!   controls by purpose, the kit's parameters, then (when the kit asks)
-//!   under [`MISC_GROUP`] the generic controls, one per value type (a
-//!   number, a toggle, a choice, a curve, a colour, a text), each the
-//!   implicit control of a descriptor, as a module's parameter would get.
-//!   A checkbox stays a checkbox whatever its domain: a domain use of a
-//!   generic control is a kit parameter, not a control of its own; a
-//!   control is registered only when it adds something beyond its value
-//!   type (a unit and range, a variant set of its own).
+//!   controls by purpose, the kit's configured controls under their
+//!   domain group, then under [`MISC_GROUP`] the generic controls, one
+//!   per value type (a number, a toggle, a choice, a curve, a colour, a
+//!   text). A checkbox stays a checkbox whatever its domain: a domain use
+//!   of a generic control is a [`Configured`] control (the generic
+//!   control and its [`Settings`]: a name, one line saying what it does,
+//!   a range, unit, choices, default), a preset of it, not a control of
+//!   its own. A control is registered only when it adds something beyond
+//!   its value type (a feel, detents, a face of its own).
+//! - A generic control added to the bench is set up there: named, its
+//!   line written, its range, unit or choices given
+//!   ([`Bench::configure`]); [`Bench::keep`] keeps it as a configured
+//!   control on the shelf, saved with the bench and loaded back.
 //! - A [`Composition`] is what is on the bench, in its logical order:
 //!   controls, and cases grouping some of them under a legend, with help
 //!   text and a closing separator as the case's chrome. It flattens into
@@ -47,9 +52,11 @@
 //! The drawing is in [`ui`]; [`EditorDrawings`] draws the integrated
 //! curve and colour wheel with egui-pop's editors.
 
+pub mod configured;
 mod drawings;
 pub mod ui;
 
+pub use configured::{Configured, Generic, Settings, slug};
 pub use drawings::EditorDrawings;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -101,6 +108,12 @@ pub struct ShelfEntry {
     pub hint: String,
     /// The parameter a copy on the bench is declared with.
     pub descriptor: ParamDescriptor,
+    /// The generic control and its settings, for a configured control or
+    /// a generic one; `None` for a registered control.
+    pub configured: Option<Configured>,
+    /// One of the generic controls, one per value type: added to the
+    /// bench, it is named and set up there.
+    pub generic: bool,
 }
 
 impl ShelfEntry {
@@ -119,17 +132,9 @@ impl ShelfEntry {
 /// the registered controls the kit gives no group.
 pub const MISC_GROUP: &str = "Miscellaneous";
 
-/// A parameter the kit puts on the shelf, as the implicit control of its
-/// descriptor.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ShelfParam {
-    /// Its shelf name, what its key on the bench starts with.
-    pub name: String,
-    pub group: String,
-    #[serde(default)]
-    pub hint: String,
-    pub descriptor: ParamDescriptor,
-}
+/// The shelf group of the configured controls a person keeps from the
+/// bench ([`Bench::keep`]) when they have no domain group.
+pub const KEPT_GROUP: &str = "Kept controls";
 
 /// A bench the kit ships, as data: its composition, and the context,
 /// mode, width and settings it sets (each kept as it is when left out).
@@ -159,9 +164,10 @@ pub struct Kit {
     /// The shelf group of each registered control, by id; the others go
     /// under [`MISC_GROUP`].
     pub groups: BTreeMap<String, String>,
-    /// Parameters on the shelf as implicit controls, after the registered
-    /// controls.
-    pub parameters: Vec<ShelfParam>,
+    /// Configured controls: presets of the generic controls (a name, a
+    /// line, a range, choices, a default), on the shelf under their
+    /// group after the registered controls.
+    pub configured: Vec<Configured>,
     /// The generic controls, one per value type, under [`MISC_GROUP`],
     /// last on the shelf.
     pub implicit: bool,
@@ -182,6 +188,20 @@ impl Kit {
             tools: vec![String::new()],
             ..Self::default()
         }
+    }
+
+    /// Checks its configured controls' settings: each makes a parameter,
+    /// and no two share a name.
+    pub fn check(&self) -> Result<(), String> {
+        let mut names = BTreeSet::new();
+        for c in &self.configured {
+            c.descriptor()
+                .map_err(|e| format!("configured `{}`: {e}", c.name))?;
+            if !names.insert(c.name.as_str()) {
+                return Err(format!("two configured controls are named `{}`", c.name));
+            }
+        }
+        Ok(())
     }
 }
 
@@ -223,58 +243,17 @@ fn descriptor_of(control: &Control) -> ParamDescriptor {
     }
 }
 
-/// The generic controls of the shelf: one parameter per value type, as a
-/// module would declare it.
-fn generic_descriptors() -> Vec<(&'static str, &'static str, ParamDescriptor)> {
-    let list = |label: &str, default: Vec<f64>, widget| {
-        let mut d = ParamDescriptor::new(ParamType::Floats, label, Value::Floats(default));
-        d.widget = Some(widget);
-        d
-    };
-    let mut amount = ParamDescriptor::float("Amount", 0.0, 1.0, 0.5);
-    amount.unit = Some("%".into());
-    amount.display_scale = 100.0;
-    amount.precision = 0;
-    let mut count = ParamDescriptor::new(ParamType::Int, "Iterations", Value::Int(2));
-    count.hard = Some((0.0, 8.0));
-    count.step = 1.0;
-    count.precision = 0;
-    let mut method =
-        ParamDescriptor::new(ParamType::Choice, "Method", Value::Choice("Filmic".into()));
-    method.choices = vec!["Linear".into(), "Filmic".into(), "Sigmoid".into()];
-    vec![
-        ("number", "a number", amount),
-        ("whole", "a whole number", count),
-        (
-            "toggle",
-            "a toggle",
-            ParamDescriptor::new(ParamType::Bool, "Preserve colours", Value::Bool(true)),
-        ),
-        ("choice", "a choice", method),
-        (
-            "curve",
-            "a curve (points)",
-            list(
-                "Curve",
-                vec![0.0, 0.0, 0.25, 0.2, 0.75, 0.85, 1.0, 1.0],
-                crate::Widget::Curve,
-            ),
-        ),
-        (
-            "colour",
-            "a colour",
-            list("Lift", vec![0.08, 0.3, 0.1], crate::Widget::Wheel),
-        ),
-        (
-            "text",
-            "a text",
-            ParamDescriptor::new(ParamType::Text, "Notes", Value::Text(String::new())),
-        ),
-    ]
+/// A configured control's line, or what it holds when it has none.
+fn line_or(d: &ParamDescriptor, generic: Generic) -> String {
+    if d.description.is_empty() {
+        format!("Generic control of {}", generic.what())
+    } else {
+        d.description.clone()
+    }
 }
 
 /// What can go on the bench, in shelf order: registered controls grouped
-/// by purpose, the kit's parameters, then [`MISC_GROUP`]: the registered
+/// by purpose, the kit's configured controls, then [`MISC_GROUP`]: the registered
 /// controls with no group and the generic controls, one per value type.
 #[derive(Clone, Debug)]
 pub struct Shelf {
@@ -283,7 +262,7 @@ pub struct Shelf {
 
 impl Shelf {
     /// The shelf of a kit, and the kit's registry with the shelf's
-    /// implicit controls (its parameters and generic controls) added.
+    /// implicit controls (its configured and generic controls) added.
     pub fn of(kit: &Kit) -> (Self, Registry) {
         let mut registry = kit.registry.clone();
         let group_of = |c: &Control| {
@@ -302,6 +281,8 @@ impl Shelf {
                 group: group_of(c),
                 hint: c.purpose.clone(),
                 descriptor: descriptor_of(c),
+                configured: None,
+                generic: false,
             })
             .collect();
         // By group, Miscellaneous last.
@@ -317,40 +298,47 @@ impl Shelf {
             .position(|e| e.group == MISC_GROUP)
             .map(|i| entries.split_off(i))
             .unwrap_or_default();
-        for p in &kit.parameters {
-            let control = crate::implicit(&format!("shelf/{}", p.name), &p.descriptor);
+        for c in &kit.configured {
+            // A kit's settings are checked as it loads (`Kit::check`).
+            let Ok(d) = c.descriptor() else { continue };
+            let control = crate::implicit(&format!("shelf/{}", c.name), &d);
             entries.push(ShelfEntry {
-                name: p.name.clone(),
+                name: c.name.clone(),
                 control: control.id.clone(),
-                label: p.descriptor.label.clone(),
-                group: p.group.clone(),
-                hint: p.hint.clone(),
-                descriptor: p.descriptor.clone(),
+                label: d.label.clone(),
+                group: c.group.clone(),
+                hint: line_or(&d, c.generic),
+                descriptor: d,
+                configured: Some(c.clone()),
+                generic: false,
             });
-            let _ = registry.register(control);
+            let _ = registry.replace(control);
         }
         entries.extend(misc);
         let generic = if kit.implicit {
-            generic_descriptors()
+            Generic::ALL.to_vec()
         } else {
             Vec::new()
         };
-        for (name, hint, d) in generic {
-            // A kit parameter of the same name stands in for it.
-            if entries.iter().any(|e| e.name == name) {
+        for g in generic {
+            let c = g.plain();
+            // A configured control of the same name stands in for it.
+            if entries.iter().any(|e| e.name == c.name) {
                 continue;
             }
-            let control = crate::implicit(&format!("shelf/{name}"), &d);
+            let Ok(d) = c.descriptor() else { continue };
+            let control = crate::implicit(&format!("shelf/{}", c.name), &d);
             entries.push(ShelfEntry {
-                name: name.to_owned(),
+                name: c.name.clone(),
                 control: control.id.clone(),
                 label: d.label.clone(),
                 group: MISC_GROUP.to_owned(),
-                hint: format!("Generic control of {hint}"),
+                hint: format!("Generic control of {}", g.what()),
                 descriptor: d,
+                configured: Some(c),
+                generic: true,
             });
-            // Each value type once: the shelf is built once per registry.
-            let _ = registry.register(control);
+            let _ = registry.replace(control);
         }
         (Self { entries }, registry)
     }
@@ -378,8 +366,9 @@ impl Shelf {
 }
 
 /// A control on the bench: its key there, its control's id, the variant
-/// picked (the default when `None`) and how rare it is (its tier).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// picked (the default when `None`), how rare it is (its tier), and for a
+/// generic control set up on the bench, its settings.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Piece {
     pub key: String,
     pub control: String,
@@ -387,6 +376,15 @@ pub struct Piece {
     pub variant: Option<String>,
     #[serde(default, skip_serializing_if = "Tier::is_standard")]
     pub tier: Tier,
+    /// A generic control set up on the bench: the generic control and its
+    /// settings, its control [`setup_id`] of its key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub setup: Option<Box<Configured>>,
+}
+
+/// The control id of a generic control set up on the bench, by its key.
+pub fn setup_id(key: &str) -> String {
+    format!("implicit:{NODE}/{key}")
 }
 
 impl Piece {
@@ -397,6 +395,7 @@ impl Piece {
             control: control.into(),
             variant: None,
             tier: Tier::Standard,
+            setup: None,
         }
     }
 
@@ -412,7 +411,7 @@ impl Piece {
 
 /// A case on the bench: parts under a legend, with optional help text and
 /// a closing separator (its chrome).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BenchCase {
     pub key: String,
     pub legend: String,
@@ -424,7 +423,7 @@ pub struct BenchCase {
 }
 
 /// One entry of the bench, at the top level.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum Entry {
     Control(Piece),
@@ -769,7 +768,17 @@ impl Composition {
 pub const COMMANDS: &[CommandInfo] = &[
     CommandInfo {
         name: "controls.bench.add",
-        help: "Puts a control from the shelf on the bench: {control} (a shelf name such as `exposure` or `toggle`, or a control id), optional {at} (its index) and {case} (a case's key); answers its {key}",
+        help: "Puts a control from the shelf on the bench: {control} (a shelf name such as `exposure` or `toggle`, or a control id), optional {at} (its index), {case} (a case's key) and, for a generic or configured control, {settings} (label, line, range, step, unit, scale, precision, choices, default: its key from its label); answers its {key} and {settings}",
+        read_only: false,
+    },
+    CommandInfo {
+        name: "controls.bench.configure",
+        help: "Sets up a generic or configured control on the bench: {key}, {settings} (label, line, and per value type range, step, unit, scale, precision, choices, default); its value stays when it still fits",
+        read_only: false,
+    },
+    CommandInfo {
+        name: "controls.bench.keep",
+        help: "Keeps a control set up on the bench as a configured control on the shelf: {key}, optional {name} (its key) and {group}; saved with the bench and loaded back; answers its shelf {name}",
         read_only: false,
     },
     CommandInfo {
@@ -1027,13 +1036,23 @@ pub struct Saved {
     pub composition: Composition,
     #[serde(default)]
     pub settings: BTreeMap<String, Json>,
+    /// The configured controls kept from the bench ([`Bench::keep`]):
+    /// presets of the generic controls, back on the shelf once loaded.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub configured: Vec<Configured>,
 }
 
 /// The bench: its shelf, its composition, its values and its box.
 pub struct Bench {
-    /// The kit's controls and the shelf's implicit controls.
+    /// The kit's controls, the shelf's implicit controls, and the generic
+    /// controls set up on the bench.
     pub registry: Registry,
     pub shelf: Shelf,
+    /// The kit the shelf is built from.
+    kit: Kit,
+    /// The configured controls kept from the bench, on the shelf after
+    /// the kit's ([`Bench::keep`]); saved with the bench.
+    pub kept: Vec<Configured>,
     /// The kit's presets.
     pub presets: Vec<Preset>,
     /// The tools the context bar offers (`ctl.tool`), none first.
@@ -1078,12 +1097,14 @@ impl Bench {
         let tools = if kit.tools.is_empty() {
             vec![String::new()]
         } else {
-            kit.tools
+            kit.tools.clone()
         };
         let bench = Self {
             registry,
             shelf,
-            presets: kit.presets,
+            presets: kit.presets.clone(),
+            kit,
+            kept: Vec::new(),
             tools,
             composition: Composition::default(),
             store: MemoryStore::new(),
@@ -1136,6 +1157,7 @@ impl Bench {
             context: p.context.unwrap_or_else(|| json!({})),
             composition: p.composition,
             settings: p.settings,
+            configured: self.kept.clone(),
         };
         self.load(saved)
     }
@@ -1223,19 +1245,176 @@ impl Bench {
     }
 
     /// Puts a shelf entry (by name or control id) on the bench at a spot
-    /// (the end when `None`), its value at its default; answers its key.
+    /// (the end when `None`), its value at its default; answers its key. A
+    /// generic control goes on with its plain settings, to be set up there
+    /// ([`Bench::configure`]).
     pub fn add(&mut self, name: &str, at: Option<Spot>) -> Result<String, String> {
         let entry = self
             .shelf
             .get(name)
             .cloned()
             .ok_or_else(|| format!("nothing named `{name}` on the shelf"))?;
+        if entry.generic
+            && let Some(c) = entry.configured
+        {
+            return self.add_setup(&entry.name, c, at);
+        }
         let key = self.free_key(&entry.name);
         let spot = at.unwrap_or_else(|| Spot::top(self.composition.entries.len()));
         self.composition
             .insert(Entry::Control(Piece::new(&key, &entry.control)), &spot)?;
         self.store.declare(&path_of(&key), entry.descriptor);
         Ok(key)
+    }
+
+    /// Puts a generic or configured control from the shelf on the bench
+    /// with settings of its own (a name, a line, a range…); its key comes
+    /// from its name (`Low cut` gives `low-cut`). Answers its key.
+    pub fn add_configured(
+        &mut self,
+        name: &str,
+        settings: Settings,
+        at: Option<Spot>,
+    ) -> Result<String, String> {
+        let entry = self
+            .shelf
+            .get(name)
+            .cloned()
+            .ok_or_else(|| format!("nothing named `{name}` on the shelf"))?;
+        let mut c = entry.configured.ok_or_else(|| {
+            format!("`{name}` is a registered control: it has no settings to give")
+        })?;
+        c.settings = settings;
+        let key = match slug(&c.settings.label) {
+            k if k.is_empty() => entry.name,
+            k => k,
+        };
+        self.add_setup(&key, c, at)
+    }
+
+    /// A generic control set up on the bench, at a free key from `name`.
+    fn add_setup(&mut self, name: &str, c: Configured, at: Option<Spot>) -> Result<String, String> {
+        let d = c.descriptor()?;
+        let key = self.free_key(name);
+        let spot = at.unwrap_or_else(|| Spot::top(self.composition.entries.len()));
+        let control = crate::implicit(&format!("{NODE}/{key}"), &d);
+        let mut piece = Piece::new(&key, &control.id);
+        piece.setup = Some(Box::new(Configured {
+            name: key.clone(),
+            ..c
+        }));
+        self.composition.insert(Entry::Control(piece), &spot)?;
+        self.registry.replace(control)?;
+        self.store.declare(&path_of(&key), d);
+        Ok(key)
+    }
+
+    /// Sets up a generic or configured control on the bench again: its
+    /// name, line, range, unit, choices, default. Its value stays when it
+    /// still fits; a registered control is refused (its settings are its
+    /// own).
+    pub fn configure(&mut self, key: &str, settings: Settings) -> Result<(), String> {
+        let piece = self
+            .composition
+            .pieces()
+            .into_iter()
+            .find(|(p, _)| p.key == key)
+            .map(|(p, _)| p.clone())
+            .ok_or_else(|| format!("no control `{key}` on the bench"))?;
+        let (generic, group) = match &piece.setup {
+            Some(c) => (c.generic, c.group.clone()),
+            None => self
+                .shelf
+                .get(&piece.control)
+                .and_then(|e| e.configured.as_ref())
+                .map(|c| (c.generic, c.group.clone()))
+                .ok_or_else(|| {
+                    format!("`{key}` is a registered control: its settings are its own")
+                })?,
+        };
+        let d = settings.descriptor(generic)?;
+        let control = crate::implicit(&format!("{NODE}/{key}"), &d);
+        self.registry.replace(control.clone())?;
+        let faces: Vec<String> = control.faces.iter().map(|f| f.id.clone()).collect();
+        if let Some(p) = self.composition.piece_mut(key) {
+            p.control = control.id;
+            p.setup = Some(Box::new(Configured::new(key, &group, generic, settings)));
+            if p.variant.as_ref().is_some_and(|v| !faces.contains(v)) {
+                p.variant = None;
+            }
+        }
+        self.store.redeclare(&path_of(key), d);
+        self.previous = None;
+        Ok(())
+    }
+
+    /// The settings of a control on the bench: its own when set up there,
+    /// its configured control's on the shelf, `None` for a registered one.
+    pub fn settings(&self, key: &str) -> Option<Configured> {
+        let (p, _) = self
+            .composition
+            .pieces()
+            .into_iter()
+            .find(|(p, _)| p.key == key)?;
+        p.setup.as_deref().cloned().or_else(|| {
+            self.shelf
+                .get(&p.control)
+                .and_then(|e| e.configured.clone())
+        })
+    }
+
+    /// Keeps a control set up on the bench as a configured control: a
+    /// preset on the shelf named `name` (its key when `None`), under
+    /// `group` (its own, or [`KEPT_GROUP`] for a generic one); saved with
+    /// the bench and loaded back. A kept one of the same name is replaced;
+    /// a kit's is not. Answers its shelf name.
+    pub fn keep(
+        &mut self,
+        key: &str,
+        name: Option<&str>,
+        group: Option<&str>,
+    ) -> Result<String, String> {
+        let mut c = self
+            .settings(key)
+            .ok_or_else(|| format!("`{key}` is a registered control: nothing to keep"))?;
+        let name = slug(name.unwrap_or(key));
+        if name.is_empty() {
+            return Err("a kept control needs a name".into());
+        }
+        let kits = self.kit.configured.iter().any(|k| k.name == name)
+            || Generic::ALL.iter().any(|g| g.name() == name)
+            || self.kit.registry.get(&name).is_some();
+        if kits {
+            return Err(format!("`{name}` is already on the kit's shelf"));
+        }
+        c.name.clone_from(&name);
+        c.group = match group {
+            Some(g) if !g.trim().is_empty() => g.trim().to_owned(),
+            _ if c.group == MISC_GROUP => KEPT_GROUP.to_owned(),
+            _ => c.group,
+        };
+        c.descriptor()?;
+        match self.kept.iter_mut().find(|k| k.name == name) {
+            Some(k) => *k = c,
+            None => self.kept.push(c),
+        }
+        self.reshelve();
+        Ok(name)
+    }
+
+    /// The shelf again, from the kit and the kept controls; the controls
+    /// set up on the bench registered again.
+    fn reshelve(&mut self) {
+        let mut kit = self.kit.clone();
+        kit.configured.extend(self.kept.iter().cloned());
+        let (shelf, mut registry) = Shelf::of(&kit);
+        for (p, _) in self.composition.pieces() {
+            if let Some(d) = p.setup.as_ref().and_then(|c| c.descriptor().ok()) {
+                let _ = registry.replace(crate::implicit(&format!("{NODE}/{}", p.key), &d));
+            }
+        }
+        self.shelf = shelf;
+        self.registry = registry;
     }
 
     /// Takes a control or a case (with its parts) off the bench.
@@ -1584,6 +1763,7 @@ impl Bench {
             }),
             composition: self.composition.clone(),
             settings,
+            configured: self.kept.clone(),
         }
     }
 
@@ -1597,21 +1777,43 @@ impl Bench {
                 saved.format
             ));
         }
+        // Its kept controls first: its pieces may come from them.
+        let mut kit = self.kit.clone();
+        for c in &saved.configured {
+            c.descriptor()
+                .map_err(|e| format!("kept control `{}`: {e}", c.name))?;
+        }
+        kit.configured.extend(saved.configured.iter().cloned());
+        let (shelf, mut registry) = Shelf::of(&kit);
         let mut descriptors = Vec::new();
         for (p, _) in saved.composition.pieces() {
-            let e = self
-                .shelf
-                .get(&p.control)
-                .ok_or_else(|| format!("`{}`: no control `{}` on the shelf", p.key, p.control))?;
+            let d = match &p.setup {
+                Some(c) => {
+                    let d = c.descriptor().map_err(|e| format!("`{}`: {e}", p.key))?;
+                    let control = crate::implicit(&format!("{NODE}/{}", p.key), &d);
+                    if control.id != p.control {
+                        return Err(format!(
+                            "`{}`: a control set up on the bench is `{}`",
+                            p.key, control.id
+                        ));
+                    }
+                    registry.replace(control)?;
+                    d
+                }
+                None => shelf
+                    .get(&p.control)
+                    .ok_or_else(|| format!("`{}`: no control `{}` on the shelf", p.key, p.control))?
+                    .descriptor
+                    .clone(),
+            };
             if let Some(id) = &p.variant
-                && !self
-                    .registry
+                && !registry
                     .get(&p.control)
                     .is_some_and(|c| c.faces.iter().any(|v| &v.id == id))
             {
                 return Err(format!("`{}`: `{}` has no face `{id}`", p.key, p.control));
             }
-            descriptors.push((p.key.clone(), e.descriptor.clone()));
+            descriptors.push((p.key.clone(), d));
         }
         let (card, _) = saved.composition.card();
         card.check()?;
@@ -1625,6 +1827,9 @@ impl Bench {
         let mut trial = Contexts::default();
         crate::commands::set_context(&mut trial, &saved.context)?;
         self.set_context(&saved.context)?;
+        self.shelf = shelf;
+        self.registry = registry;
+        self.kept = saved.configured;
         self.store = MemoryStore::new();
         for (key, d) in descriptors {
             self.store.declare(&path_of(&key), d);
@@ -1666,8 +1871,33 @@ impl Bench {
         match name {
             "controls.bench.add" => {
                 let control = text("control").ok_or("`control` is required")?;
-                let key = self.add(control, spot(index("at")))?;
-                Ok(json!({ "key": key }))
+                let key = match args.get("settings") {
+                    Some(s) => {
+                        let s: Settings = serde_json::from_value(s.clone())
+                            .map_err(|e| format!("`settings`: {e}"))?;
+                        self.add_configured(control, s, spot(index("at")))?
+                    }
+                    None => self.add(control, spot(index("at")))?,
+                };
+                Ok(json!({ "key": key, "settings": self.settings(&key) }))
+            }
+            "controls.bench.configure" => {
+                let key = key()?.to_owned();
+                let s: Settings = serde_json::from_value(
+                    args.get("settings")
+                        .cloned()
+                        .ok_or("`settings` is required")?,
+                )
+                .map_err(|e| format!("`settings`: {e}"))?;
+                self.configure(&key, s)?;
+                Ok(
+                    json!({ "key": key, "settings": self.settings(&key), "value": self.value(&key).map(|v| v.to_json()) }),
+                )
+            }
+            "controls.bench.keep" => {
+                let key = key()?;
+                let name = self.keep(key, text("name"), text("group"))?;
+                Ok(json!({ "name": name, "kept": self.kept }))
             }
             "controls.bench.remove" => {
                 let key = key()?;
@@ -1794,6 +2024,7 @@ impl Bench {
                 json!({
                     "key": p.key,
                     "control": p.control,
+                    "setup": p.setup,
                     "variant": p.variant,
                     "tier": p.tier,
                     "case": case.map(|c| c.key.clone()),

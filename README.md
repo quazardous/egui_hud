@@ -61,18 +61,45 @@ them.
 
 ## Generic controls first
 
-A checkbox stays a checkbox whatever its domain. Register a control of
-its own only when it adds something beyond its value type: a unit and a
-range (a gain in decibels), a choice of faces of its own (a fader and a
-knob). Otherwise use the generic control of the value type: a
-domain use of it is a parameter (its label, description, default and
-choices in a `ParamDescriptor`), and the bench's shelf lists the generic
-controls, one per value type, under "Miscellaneous".
+A checkbox stays a checkbox whatever its domain. There is one **generic
+control** per value type (a number, a whole number, a toggle, a choice,
+a curve, a colour, a text), and a domain use of one is a **configured
+control**: the generic control plus its settings (`bench::Configured`,
+`bench::Settings`):
+
+- a name (its label) and one line saying, in plain words, what it does
+  (shown on the shelf and when the pointer rests on the control);
+- per value type: a range, step, unit and scale for a number, choices
+  for a choice, a default for each.
+
+A kit's `configured` controls are presets of the generic controls,
+listed on the shelf under their domain group; in a kit they read flat:
+
+```json
+{"name": "low-cut", "group": "Mixer channel", "generic": "toggle",
+ "label": "Low cut", "line": "Removes the lowest frequencies, rumble and hum"}
+```
+
+On the bench, a generic control dropped from the shelf (under
+"Miscellaneous") opens its set-up: type its name and its line, give a
+number its range and unit, a choice its choices. **Keep on the shelf**
+keeps it as a configured control, saved with the bench and loaded back.
+Agents do the same with `controls.bench.add {control, settings}`,
+`controls.bench.configure {key, settings}` and
+`controls.bench.keep {key, name, group}`.
+
+**The exception**: register a control of its own only when it adds
+something beyond its value type and settings: a feel and detents (a
+gain in decibels with a detent at 0 dB), a face of its own or a choice
+of faces (a fader and a knob), a value that wraps. A module can likewise
+register a face overriding how a value type is drawn (a host's
+`Drawings`). Everything else is a configured generic control.
 
 ## Demo
 
 **[Try it in a browser](https://quazardous.github.io/egui_hud/)**:
-a mixer channel and a light, declared as data, on the bench
+a mixer channel and a light, declared as data, on the bench, with a
+channel strip and a lamp that show what each control does
 ([source](demo)). The demo (`demo/`, not published) runs in a browser with
 [Trunk](https://trunkrs.dev):
 
