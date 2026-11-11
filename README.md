@@ -1,5 +1,10 @@
 # egui_hud
 
+[<img alt="github" src="https://img.shields.io/badge/github-quazardous/egui__hud-8da0cb?logo=github" height="20">](https://github.com/quazardous/egui_hud)
+[![CI](https://github.com/quazardous/egui_hud/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/quazardous/egui_hud/actions/workflows/ci.yml)
+[![Demo](https://github.com/quazardous/egui_hud/actions/workflows/pages.yml/badge.svg?branch=main)](https://quazardous.github.io/egui_hud/)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
+
 **[Live demo](https://quazardous.github.io/egui_hud/)**: a mixer channel
 and a light, declared as data, in a box laid out as it is resized, beside
 previews of what each control does.
