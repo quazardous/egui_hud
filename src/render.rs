@@ -1609,7 +1609,8 @@ fn slider_output(response: egui::Response, changes: &[slider::Change], value: f6
 /// The "More (n)" row under a card: egui-pop's section band (the
 /// disclosure mark, "More", the count), or in a toolbar its "More tools"
 /// button with the count. Its hover lists the folded parts and why; open,
-/// it lists them, each to reveal, and "Show all".
+/// it lists them as rows of the card's width under it, each to reveal,
+/// and "Show all".
 pub fn more(ui: &mut Ui, placement: &CardPlacement, toolbar: bool) -> Vec<CardEvent> {
     let Some(m) = &placement.more else {
         return Vec::new();
@@ -1665,17 +1666,25 @@ pub fn more(ui: &mut Ui, placement: &CardPlacement, toolbar: bool) -> Vec<CardEv
     }
     let mut events = Vec::new();
     if open {
+        // Each entry a row of the card, its full width: the card's
+        // frame grows to hold them.
+        let row = vec2(
+            ui.available_width().max(1.0),
+            ui.spacing().interact_size.y.max(HIT_AREA),
+        );
+        let entry = |ui: &mut Ui, text: String| {
+            ui.add_sized(row, egui::Button::new(text).frame_when_inactive(false))
+        };
         for f in &m.folded {
             let name = f.label.as_deref().unwrap_or(&f.key);
-            if ui
-                .button(format!("Show {name}"))
+            if entry(ui, format!("Show {name}"))
                 .on_hover_text(&f.reason.text)
                 .clicked()
             {
                 events.push(CardEvent::Reveal(f.key.clone()));
             }
         }
-        if m.folded.len() > 1 && ui.button("Show all").clicked() {
+        if m.folded.len() > 1 && entry(ui, "Show all".to_owned()).clicked() {
             events.push(CardEvent::RevealAll);
         }
     }

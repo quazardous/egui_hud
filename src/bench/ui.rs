@@ -151,6 +151,12 @@ impl BenchPage {
         }
     }
 
+    /// The bench's zone in the last frame, inside its frame: the card,
+    /// its "More" row and entries, and the room to drop at the end.
+    pub fn zone(&self) -> Option<Rect> {
+        self.zone
+    }
+
     /// The page with the host's own drawings.
     #[must_use]
     pub fn with_drawings(mut self, drawings: Box<dyn Drawings>) -> Self {
@@ -597,13 +603,9 @@ impl BenchPage {
             origin,
             vec2(self.bench.width, card_height.max(72.0) + DROP_ROOM),
         );
-        ui.painter().rect(
-            zone.expand(2.0),
-            4.0,
-            ui.visuals().extreme_bg_color,
-            ui.visuals().widgets.noninteractive.bg_stroke,
-            StrokeKind::Outside,
-        );
+        // The frame, set once the card is drawn: it holds the "More" row
+        // and its entries too.
+        let frame = ui.painter().add(egui::Shape::Noop);
         if self.bench.composition.entries.is_empty() {
             ui.painter().text(
                 zone.center(),
@@ -661,6 +663,16 @@ impl BenchPage {
         self.drop(ui, zone, &placement, &origins, &at);
         // The "More" row, below the card, is part of the bench's zone.
         let zone = zone.union(child.min_rect());
+        ui.painter().set(
+            frame,
+            egui::epaint::RectShape::new(
+                zone.expand(2.0),
+                4.0,
+                ui.visuals().extreme_bg_color,
+                ui.visuals().widgets.noninteractive.bg_stroke,
+                StrokeKind::Outside,
+            ),
+        );
         ui.allocate_rect(zone, Sense::hover());
         self.width_handle(ui, zone);
         self.zone = Some(zone);

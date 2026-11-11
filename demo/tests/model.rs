@@ -206,3 +206,42 @@ fn a_slot_too_small_for_the_default_face_takes_the_next_that_fits() {
     let faces: Vec<&str> = hue.faces.iter().map(|f| f.id.as_str()).collect();
     assert_eq!(faces, ["endless-knob", "scrub"]);
 }
+
+#[test]
+fn the_more_entries_unfold_inside_the_bench_frame() {
+    use egui_kittest::kittest::{NodeT as _, Queryable as _};
+
+    let mut h = Harness::builder()
+        .with_size(egui_pop::egui::vec2(1280.0, 1400.0))
+        .build_ui_state(|ui, d: &mut Demo| d.ui(ui), Demo::new());
+    h.state_mut()
+        .page
+        .bench
+        .load_preset("Folding: More")
+        .unwrap();
+    h.run_steps(3);
+    let more = h
+        .get_all_by(|n| n.label().is_some_and(|l| l.starts_with("More")))
+        .next()
+        .expect("the More row")
+        .rect();
+    h.get_all_by(|n| n.label().is_some_and(|l| l.starts_with("More")))
+        .next()
+        .unwrap()
+        .click_accesskit();
+    h.run_steps(3);
+    let zone = h.state().page.zone().expect("the bench drawn");
+    assert!(zone.contains_rect(more), "{more:?} in {zone:?}");
+    let shown: Vec<_> = h
+        .get_all_by(|n| n.label().is_some_and(|l| l.starts_with("Show ")))
+        .map(|n| (n.accesskit_node().label().unwrap_or_default(), n.rect()))
+        .collect();
+    assert!(shown.len() >= 3, "{shown:?}");
+    for (label, r) in shown {
+        assert!(zone.contains_rect(r), "{label}: {r:?} in {zone:?}");
+        assert!(
+            r.width() > zone.width() * 0.9,
+            "{label} is a row of the card"
+        );
+    }
+}
