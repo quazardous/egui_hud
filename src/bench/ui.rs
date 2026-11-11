@@ -90,6 +90,9 @@ pub struct BenchPage {
     /// The bench's zone in the last frame: the pointer over it holds a
     /// context change (anti-jump).
     zone: Option<Rect>,
+    /// The width handle's drag: the bench's width and the pointer's x
+    /// where it started.
+    resize_from: Option<(f32, f32)>,
     /// The last resolution drawn: what the reason pane explains.
     pub last: Option<CardPlacement>,
     /// The file Save writes and Load reads (natively).
@@ -177,6 +180,7 @@ impl BenchPage {
             drawn: BTreeMap::new(),
             hover: None,
             zone: None,
+            resize_from: None,
             last: None,
             file: "bench.controls.json".into(),
             text: String::new(),
@@ -804,9 +808,13 @@ impl BenchPage {
     /// frames, the drop ghost, the layout mode's handles, and the width
     /// handle.
     pub fn bench_zone(&mut self, ui: &mut Ui) {
-        // The hand over the bench holds a context change (anti-jump).
+        // The hand over the bench holds a context change (anti-jump); not
+        // the hand on the width handle: resizing is the person's own act,
+        // and the bench must follow it.
         let pointer = ui.input(|i| i.pointer.hover_pos());
-        self.bench.pointer_in = self.zone.zip(pointer).is_some_and(|(z, p)| z.contains(p));
+        let resizing = ui.ctx().is_being_dragged(Self::width_handle_id(ui));
+        self.bench.pointer_in =
+            !resizing && self.zone.zip(pointer).is_some_and(|(z, p)| z.contains(p));
         if !self.bench.mode.boxed() {
             self.last = None;
             self.hud_zone(ui);
@@ -1196,17 +1204,38 @@ impl BenchPage {
         }
     }
 
+    /// The width handle's id.
+    fn width_handle_id(ui: &Ui) -> egui::Id {
+        ui.scope_id().with("bench-width")
+    }
+
     /// The handle on the bench's right edge: dragged, it sets the width.
     fn width_handle(&mut self, ui: &mut Ui, zone: Rect) {
         let rect = Rect::from_min_size(
             pos2(zone.right() + 2.0, zone.top()),
             vec2(HANDLE, zone.height()),
         );
-        let r = ui.interact(rect, ui.scope_id().with("bench-width"), Sense::drag());
+        let r = ui.interact(rect, Self::width_handle_id(ui), Sense::drag());
         let name = format!("Bench width, {:.0} points", self.bench.width);
         r.widget_info(|| WidgetInfo::labeled(Role::Splitter, true, &name));
-        if r.dragged() {
-            self.bench.set_width(self.bench.width + r.drag_delta().x);
+        // The width follows the pointer from where the drag started, not
+        // the sum of its moves: past either end of the range, the handle
+        // waits for the pointer to come back instead of drifting from it
+        // (and the pointer onto the bench).
+        if r.drag_started() {
+            let x = ui
+                .input(|i| i.pointer.press_origin())
+                .map_or(rect.center().x, |p| p.x);
+            self.resize_from = Some((self.bench.width, x));
+        }
+        if r.dragged()
+            && let Some((width, x)) = self.resize_from
+            && let Some(p) = ui.input(|i| i.pointer.interact_pos())
+        {
+            self.bench.set_width(width + p.x - x);
+        }
+        if !r.dragged() {
+            self.resize_from = None;
         }
         if r.hovered() || r.dragged() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
