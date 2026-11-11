@@ -1,13 +1,64 @@
+# The root is the `egui_hud` crate; `demo/` is its web demo, never
+# published.
+[workspace]
+members = ["demo"]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.95"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/quazardous/egui_hud"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# The UI library the renderers draw with. Pinned to a commit while the two
+# move together.
+egui-pop = { git = "https://github.com/quazardous/egui-pop", rev = "8d843bef", default-features = false, features = ["eframe", "bundled-fonts"] }
+# egui-pop's logic without egui: `when` clauses over the context keys.
+egui-pop-model = { git = "https://github.com/quazardous/egui-pop", rev = "8d843bef" }
+# The slot layout engine. Pinned to a commit until it is published.
+egui_fit = { git = "https://github.com/quazardous/egui_fit", rev = "0fe36629a70c37e9ef3c7ee5b5d769713d5f08de", features = ["serde"] }
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+# Layout code converts between pixel coordinates, slot counts and float
+# values all the time; the ranges are known, so the casts are deliberate.
+cast_possible_truncation = "allow"
+cast_possible_wrap = "allow"
+cast_precision_loss = "allow"
+cast_sign_loss = "allow"
+many_single_char_names = "allow"
+similar_names = "allow"
+# Exact float comparisons are deliberate: identity checks such as a value
+# exactly at its default.
+float_cmp = "allow"
+unreadable_literal = "allow"
+module_name_repetitions = "allow"
+# Errors are typed and self-describing; a "# Errors" section on every
+# fallible function would repeat them. The same goes for panics, which are
+# invariant checks.
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+must_use_candidate = "allow"
+return_self_not_must_use = "allow"
+too_many_lines = "allow"
+needless_pass_by_value = "allow"
+
 [package]
 name = "egui_hud"
+version = "0.1.0"
 description = "Controls as data for egui: a control's purpose, value, feel and representations, cards laid out on a slot engine, resolved in context, a value flow of gestures, and renderers on egui-pop"
-version.workspace = true
+keywords = ["egui", "gui", "controls", "widgets", "layout"]
+categories = ["gui"]
+readme = "README.md"
 edition.workspace = true
-# GPL for now, as the workspace; to move to its own repository under
-# MIT OR Apache-2.0 once its API has settled.
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-publish = false
 
 [features]
 ## The renderers (panel rows, HUD chips) on egui-pop. Off, the crate is the

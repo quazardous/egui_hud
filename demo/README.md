@@ -1,10 +1,10 @@
 # egui_hud demo
 
-A web demo of [egui_hud](../egui_hud), the controls framework, laid out by
+A web demo of [egui_hud](..), the controls framework, laid out by
 [egui_fit](https://github.com/quazardous/egui_fit) and drawn
 with [egui-pop](https://github.com/quazardous/egui-pop).
 
-**Live:** <https://quazardous.github.io/helios/egui_hud/>
+**Live:** <https://quazardous.github.io/egui_hud/>
 
 ## What it shows
 
@@ -45,7 +45,7 @@ They sit on egui_hud's **bench** (`egui_hud::bench`, feature `bench`):
 In a browser, with [Trunk](https://trunkrs.dev):
 
 ```bash
-cd crates/egui_hud_demo
+cd demo
 trunk serve        # or: trunk build --release
 ```
 
@@ -76,6 +76,6 @@ The model's tests run headless: `cargo test -p egui_hud_demo`.
 - `presets`: benches as data (composition, rules, context, mode, width);
 - `tools`: the tools the context bar offers.
 
-## Licence
+## License
 
-GPL-3.0-or-later, as the Helios workspace it lives in.
+MIT OR Apache-2.0, as egui_hud.

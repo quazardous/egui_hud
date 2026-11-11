@@ -47,7 +47,7 @@ pub const MUTE: &str = "implicit:shelf/mute";
 pub const METER: &str = "meter";
 
 /// The source code, linked from the header.
-pub const SOURCE: &str = "https://github.com/quazardous/helios/tree/main/crates/egui_hud_demo";
+pub const SOURCE: &str = "https://github.com/quazardous/egui_hud/tree/main/demo";
 
 /// The catalogue file's shape.
 #[derive(Deserialize)]

@@ -1,5 +1,9 @@
 # egui_hud
 
+**[Live demo](https://quazardous.github.io/egui_hud/)**: a mixer channel
+and a light, declared as data, composed on the bench and laid out as the
+bench is resized.
+
 Controls as data for [egui](https://github.com/emilk/egui) applications:
 what a control is (purpose, value, units, ranges, feel, detents,
 read-out), the faces that draw it and the representations they take on
@@ -67,12 +71,43 @@ controls, one per value type, under "Miscellaneous".
 
 ## Demo
 
-**[Try it in a browser](https://quazardous.github.io/helios/egui_hud/)**:
+**[Try it in a browser](https://quazardous.github.io/egui_hud/)**:
 a mixer channel and a light, declared as data, on the bench
-([source](../egui_hud_demo)).
+([source](demo)). The demo (`demo/`, not published) runs in a browser with
+[Trunk](https://trunkrs.dev):
+
+```sh
+rustup target add wasm32-unknown-unknown
+cargo install --locked trunk
+cd demo
+trunk serve    # then open http://127.0.0.1:8080
+```
+
+or on the desktop with `cargo run -p egui_hud_demo`.
+
+## Features
+
+- `render`: the renderers (panel rows, HUD chips) on egui-pop. Without it
+  the crate is the model, the registry and the value flow, with no egui.
+- `bench`: the bench (implies `render`).
 
 ## Status
 
-Developed inside the Helios workspace while its API settles, under the
-workspace's licence (GPL-3.0-or-later). It is meant to move to its own
-repository under MIT OR Apache-2.0 once the API is stable.
+Version 0, not published. The API may change. egui_hud was developed
+inside [Helios](https://github.com/quazardous/helios), a photo editor that
+uses it for its module cards, and moved to its own repository once its
+model settled.
+
+## License
+
+Licensed under either of
+
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
+- MIT license ([LICENSE-MIT](LICENSE-MIT))
+
+at your option.
+
+Unless you explicitly state otherwise, any contribution intentionally
+submitted for inclusion in the work by you, as defined in the Apache-2.0
+license, shall be dual licensed as above, without any additional terms or
+conditions.
