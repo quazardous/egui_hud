@@ -3,7 +3,7 @@
 //! value: it is handed the value of the frame and reports the changes,
 //! which the caller writes through the value flow ([`crate::flow`]).
 //!
-//! - [`card`]: a whole card from a [`resolve`](crate::resolve) result:
+//! - [`card`]: a whole card from a [`resolve`](mod@crate::resolve) result:
 //!   every shown part at its rect, its chrome, and the folded parts under
 //!   the "More (n)" row ([`more`]), whose hover gives the reasons and
 //!   whose rows ask for `controls.reveal` ([`CardEvent`]).

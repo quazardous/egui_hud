@@ -20,7 +20,7 @@
 //! - [`context`]: the context keys (task, space, detail, image, tool,
 //!   device), the box and the density, each key's class, a part's tier,
 //!   and the rules a card or a case declares over the keys.
-//! - [`resolve`]: a card resolved in its context: the precedence (the
+//! - [`resolve`](mod@resolve): a card resolved in its context: the precedence (the
 //!   declaration, the rules, the profile, the person's layout, the
 //!   moment), the slot engine, a placement per item with its reasons, the
 //!   "More (n)" entry, anti-jump, and the reachability invariant.

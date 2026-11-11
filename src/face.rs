@@ -27,7 +27,7 @@
 //! accepted ([`fitting`]), the library's order giving the default. Which
 //! face is shown is presentation: the kit's default (the first
 //! accepted), the context (a slot too small for the default takes the
-//! next accepted face that fits it, [`crate::resolve`]), or the person
+//! next accepted face that fits it, [`crate::resolve`](mod@crate::resolve)), or the person
 //! on the bench.
 
 use std::sync::LazyLock;

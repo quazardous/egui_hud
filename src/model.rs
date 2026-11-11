@@ -15,7 +15,7 @@
 //!   ([`HIT_AREA`], [`Feel`], detents).
 //! - Where a control lives ([`Mode`]) and how much it shows
 //!   ([`Representation`]); which of them a context picks is
-//!   [`crate::context`] and [`crate::resolve`].
+//!   [`crate::context`] and [`crate::resolve`](mod@crate::resolve).
 
 use std::collections::BTreeMap;
 
