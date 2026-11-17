@@ -482,6 +482,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72f5acc6cb2ba439de613abc23857ec3d78374d8ed5ac84e9d11336e87da8649"
 
 [[package]]
+name = "bus-contract"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eee53045e273f70296d40826aec89eebcf0d2ca30bab428617c50c3dd2300b23"
+
+[[package]]
 name = "bytemuck"
 version = "1.25.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -855,9 +861,9 @@ dependencies = [
 
 [[package]]
 name = "egui-pop"
-version = "0.11.0"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "64c9a2978059f103b470b381f26f8d35881f615ec6e9794b10f6089dfe1396ff"
+checksum = "6551abcee9d56799cc2dc8d734aef4df77b89c61f5a69df54728d8db708ca654"
 dependencies = [
  "egui",
  "egui-pop-api",
@@ -869,13 +875,15 @@ dependencies = [
 
 [[package]]
 name = "egui-pop-api"
-version = "0.10.0"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7b04535d299ecdbc47a14b3c9fac4d5f79140e9d680492073d18d5b1704e7fc5"
+checksum = "59272600ef82071d62f35648136e90d02c705bde29369bea5c06ef115539bbd9"
 dependencies = [
+ "bus-contract",
  "eframe",
  "egui",
  "egui-pop-core",
+ "egui-pop-hooks",
  "egui-pop-model",
  "egui-pop-win32",
  "egui_stack",
@@ -889,9 +897,9 @@ dependencies = [
 
 [[package]]
 name = "egui-pop-core"
-version = "0.10.0"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "598309161e16a7c962cc20fc06140756b85f0417fa7fb4100de2c87ae1876844"
+checksum = "71105bf7e5083dfda4fc33771445e7015bc249452d3dae396a2a46bb9d4adde4"
 dependencies = [
  "egui",
  "egui-pop-model",
@@ -904,10 +912,20 @@ dependencies = [
 ]
 
 [[package]]
-name = "egui-pop-model"
-version = "0.8.0"
+name = "egui-pop-hooks"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "343a3ceff1f1b029b7011a3b32e02c2e1e73cfe507b3cc0be9dc67026c51c778"
+checksum = "63687911acf60e41b111c08bd4db04401020440be89c437aa28afb562240ebbc"
+dependencies = [
+ "bus-contract",
+ "web-time",
+]
+
+[[package]]
+name = "egui-pop-model"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "95c0c725453c9fe68c9aaa4d2e8f75410da41b5788e950b153a147e4cd0754f2"
 dependencies = [
  "idna",
  "log",
@@ -918,9 +936,9 @@ dependencies = [
 
 [[package]]
 name = "egui-pop-tokens"
-version = "0.2.7"
+version = "0.2.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9adcfbe6b466d0071cfb7dc51a7d7b53e0e1a6f94dc0493809ca0ea30fbd8831"
+checksum = "093bd4f19a10ade01923c6610057b281e5a6ccc6d49d86a1c94163296d98065b"
 dependencies = [
  "serde-saphyr",
  "serde_json",
@@ -928,9 +946,9 @@ dependencies = [
 
 [[package]]
 name = "egui-pop-viewport"
-version = "0.10.0"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d9bef783d6e00db1ae2216113990ec1e002b6632b4ee002c597d65311585849f"
+checksum = "d292acc65a4343789d46752000f3c2eb2872610d65129fb1a2248484659a7800"
 dependencies = [
  "egui",
  "egui-pop-core",
@@ -1033,7 +1051,7 @@ dependencies = [
 
 [[package]]
 name = "egui_hud"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "egui-pop",
  "egui-pop-model",
@@ -1069,9 +1087,9 @@ dependencies = [
 
 [[package]]
 name = "egui_stack"
-version = "0.25.11"
+version = "0.25.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4dd8364b29fc943208d71df5da80c6e95db93581e63183cfe35f15d695e651c6"
+checksum = "1e6a622dfabc95c095d91e12b26ac89bdf6ac7e185acb3b2fbff132ee1704416"
 dependencies = [
  "duplicate",
  "egui",
@@ -2509,9 +2527,9 @@ dependencies = [
 
 [[package]]
 name = "ortho-router"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "19e0fe04ea4a6498b8f70fdf6a68c6958f4785d753aa4cd8c2430b5d1101ea19"
+checksum = "49b1ed46e70b98c43477251d1bad39863082d10dd375dd264a96cbe97294ca5d"
 
 [[package]]
 name = "os_pipe"
