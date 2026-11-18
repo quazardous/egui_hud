@@ -1052,7 +1052,7 @@ dependencies = [
 
 [[package]]
 name = "egui_hud"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "egui-pop",
  "egui-pop-fit",

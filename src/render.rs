@@ -35,10 +35,15 @@
 
 use std::collections::BTreeMap;
 
+use egui_pop::core::input::Input;
 use egui_pop::core::kit::{Glyph, Kit};
 use egui_pop::core::knob::Knob;
 use egui_pop::core::sections;
 use egui_pop::core::slider::{self, Slider, Verdict};
+use egui_pop::core::theme::TextRole;
+use egui_pop::core::tooltip::TooltipExt as _;
+use egui_pop::core::ui::UiPop as _;
+use egui_pop::core::widgets::{self, SelectableRow, ToggleChip};
 use egui_pop::egui::{self, Key, Rect, Sense, Ui, UiBuilder, Vec2, pos2, vec2};
 
 use crate::card::ItemKind;
@@ -325,7 +330,7 @@ fn scrub_named(
     let v = *value;
     response.widget_info(|| egui::WidgetInfo::slider(true, v, name));
     let response = if label.is_none() {
-        response.on_hover_text(name)
+        response.tip(name)
     } else {
         response
     };
@@ -345,8 +350,8 @@ pub fn chip(ui: &mut Ui, control: &Control, value: f64) -> egui::Response {
         .inner_margin(egui::Margin::symmetric(10, 4))
         .show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.weak(&control.label);
-                ui.strong(shown);
+                ui.muted(&control.label);
+                ui.section_title(shown);
             });
         })
         .response
@@ -691,7 +696,7 @@ pub fn card(
         if !control.purpose.is_empty()
             && let Some(r) = out.label.as_ref().or(out.response.as_ref())
         {
-            let _ = r.clone().on_hover_ui(|ui| line(ui, control));
+            let _ = r.clone().tip_ui(|ui| line(ui, control));
         }
         edits.extend(out.edits);
         drawn.insert(p.key.clone(), out.drawn);
@@ -717,8 +722,8 @@ pub fn card(
 /// does (its purpose), in plain words.
 pub fn line(ui: &mut Ui, control: &Control) {
     ui.set_max_width(280.0);
-    ui.strong(&control.label);
-    ui.label(&control.purpose);
+    ui.section_title(&control.label);
+    ui.text_role(TextRole::Body, &control.purpose);
 }
 
 /// A part's value at its control's default.
@@ -775,7 +780,7 @@ fn draw_marks(
     if marks.changed {
         ui.painter()
             .circle_filled(dot.center(), 3.0, ui.visuals().selection.stroke.color);
-        let r = r.on_hover_text("Changed from its default: click to reset");
+        let r = r.tip("Changed from its default: click to reset");
         if r.clicked() {
             events.push(CardEvent::Reset(key.to_owned()));
         }
@@ -798,7 +803,7 @@ fn draw_marks(
             4.0_f32.min(at.height() / 2.0),
             ui.visuals().warn_fg_color,
         );
-        r.on_hover_text(format!("Held by {by}"));
+        r.tip(format!("Held by {by}"));
     }
     let mut moved = None;
     if let Some(by) = &marks.moved {
@@ -820,7 +825,7 @@ fn draw_marks(
             ui.visuals().selection.stroke.color,
             egui::Stroke::NONE,
         ));
-        r.on_hover_text(format!("Moved by {by}"));
+        r.tip(format!("Moved by {by}"));
         moved = Some(at);
     }
     (changed, moved)
@@ -837,10 +842,14 @@ fn chrome(ui: &mut Ui, p: &Placement, rect: Rect) {
     let text = p.label.clone().unwrap_or_default();
     match kind {
         "legend" => {
-            ui.strong(text);
+            ui.section_title(text);
         }
         "help" => {
-            ui.add(egui::Label::new(egui::RichText::new(text).weak().small()).wrap());
+            // A help line wraps in its rect, as a part's row does not.
+            ui.scope(|ui| {
+                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
+                ui.meta(text);
+            });
         }
         "separator" => {
             let y = rect.center().y;
@@ -938,7 +947,7 @@ fn missing(ui: &mut Ui, control: &Control, rect: Rect) {
         ui.visuals().widgets.noninteractive.bg_stroke,
         egui::StrokeKind::Inside,
     );
-    ui.weak(format!("{}: no managed form", control.label));
+    ui.muted(format!("{}: no managed form", control.label));
 }
 
 /// A case's parts, each in its managed slot, laid out in `rect` as a
@@ -1094,16 +1103,17 @@ fn managed(
                 .face_or_default(look.variant.as_deref())
                 .map_or("checkbox", |v| v.id.as_str());
             let r = match face {
-                "push-button" => {
-                    ui.toggle_value(&mut on, if shown.is_empty() { "●" } else { shown })
-                }
+                "push-button" => ui.add(
+                    ToggleChip::new(&mut on, if shown.is_empty() { "●" } else { shown })
+                        .name(label),
+                ),
                 "lamp" => lamp(ui, on, shown),
                 // The switch's stand-in: the checkbox, until egui-pop has one.
-                _ => egui_pop::core::widgets::checkbox(ui, &mut on, shown),
+                _ => widgets::checkbox(ui, &mut on, shown),
             };
             let r = if shown.is_empty() {
                 r.widget_info(|| egui::WidgetInfo::selected(egui::Role::CheckBox, true, on, label));
-                r.on_hover_text(label)
+                r.tip(label)
             } else {
                 r
             };
@@ -1121,7 +1131,7 @@ fn managed(
             };
             let before = chosen.clone();
             let full = look.representation == Representation::Full;
-            let label_r = full.then(|| ui.label(label));
+            let label_r = full.then(|| ui.text_role(TextRole::Body, label));
             let width = ui.available_width();
             let words: Vec<String> = choices
                 .iter()
@@ -1143,7 +1153,7 @@ fn managed(
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = 1.0;
                         for (c, w) in choices.iter().zip(&words) {
-                            ui.selectable_value(&mut chosen, c.clone(), w);
+                            widgets::selectable_value(ui, &mut chosen, c.clone(), w);
                         }
                     })
                     .response
@@ -1151,26 +1161,26 @@ fn managed(
                 "radio" => {
                     ui.vertical(|ui| {
                         for (c, w) in choices.iter().zip(&words) {
-                            ui.radio_value(&mut chosen, c.clone(), w);
+                            widgets::radio_value(ui, &mut chosen, c.clone(), w);
                         }
                     })
                     .response
                 }
                 _ => {
-                    egui::ComboBox::from_id_salt(("hud-choice", key))
+                    let combo = widgets::combo_box(("hud-choice", key))
                         .selected_text(shown)
-                        .width(width)
-                        .show_ui(ui, |ui| {
-                            for (c, w) in choices.iter().zip(&words) {
-                                ui.selectable_value(&mut chosen, c.clone(), w);
-                            }
-                        })
-                        .response
+                        .width(width);
+                    ui.combo_box(combo, |ui| {
+                        for (c, w) in choices.iter().zip(&words) {
+                            widgets::selectable_value(ui, &mut chosen, c.clone(), w);
+                        }
+                    })
+                    .response
                 }
             };
             let r = match &label_r {
                 Some(l) => r.labelled_by(l.id),
-                None => r.on_hover_text(label),
+                None => r.tip(label),
             };
             let mut edits = Vec::new();
             if chosen != before {
@@ -1196,20 +1206,25 @@ fn managed(
                     Value::Text(t) => t.clone(),
                     _ => String::new(),
                 };
-                let r = ui.add(egui::TextEdit::singleline(&mut text).desired_width(rect.width()));
-                let r = r.on_hover_text(label);
+                // A compact cell: one row of the part's width.
+                let row = ui.spacing().interact_size.y.min(rect.height());
+                let out = Input::text(&mut text, label)
+                    .id_salt(("hud-text", key))
+                    .cell(vec2(rect.width(), row))
+                    .show(ui);
+                let r = out.response.tip(label);
                 let mut edits = Vec::new();
-                if r.changed() {
+                if out.changed {
                     *value = Value::Text(text);
                 }
                 // Typing is reported as it goes; leaving the field ends it.
-                if r.changed() || r.lost_focus() {
+                if out.changed || r.lost_focus() {
                     edits = set(value, r.lost_focus());
                 }
                 Managed::of(edits, r)
             }
             _ => {
-                let r = ui.label(format!("{label}: {}", value.to_json()));
+                let r = ui.text_role(TextRole::Body, format!("{label}: {}", value.to_json()));
                 Managed::of(Vec::new(), r)
             }
         },
@@ -1236,7 +1251,7 @@ fn lamp(ui: &mut Ui, on: bool, label: &str) -> egui::Response {
                 egui::Stroke::new(1.0, v.widgets.inactive.fg_stroke.color),
             );
             if !label.is_empty() {
-                ui.label(label);
+                ui.text_role(TextRole::Body, label);
             }
         })
         .response;
@@ -1271,9 +1286,10 @@ fn points(
             ui.spacing_mut().item_spacing.y = 1.0;
             for i in 0..list.len() / 2 {
                 ui.horizontal(|ui| {
-                    ui.add_sized(
+                    ui.allocate_ui_with_layout(
                         vec2(index_w, row),
-                        egui::Label::new(egui::RichText::new(format!("{}", i + 1)).weak()),
+                        egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                        |ui| ui.muted(format!("{}", i + 1)),
                     );
                     for (j, axis) in ["x", "y"].into_iter().enumerate() {
                         let at = 2 * i + j;
@@ -1297,11 +1313,11 @@ fn points(
         });
     };
     if (list.len() / 2) as f32 * (row + 1.0) > rect.height() + 0.5 {
-        egui::ScrollArea::vertical()
+        let area = egui::ScrollArea::vertical()
             .id_salt(("hud-points", key))
             .max_height(rect.height())
-            .auto_shrink([false, true])
-            .show(ui, |ui| rows(ui, &mut list, &mut changed));
+            .auto_shrink([false, true]);
+        ui.scroll_area(area, |ui| rows(ui, &mut list, &mut changed));
     } else {
         rows(ui, &mut list, &mut changed);
     }
@@ -1349,7 +1365,7 @@ fn colour(
         ui.visuals().widgets.noninteractive.bg_stroke,
         egui::StrokeKind::Inside,
     );
-    sr.on_hover_text(label);
+    sr.tip(label);
     let names = ["Hue", "Chroma", "Luminance"];
     let ranges = [(0.0, 1.0), (0.0, 1.0), (-1.0, 1.0)];
     let w = ((rect.width() - side - 3.0 * gap) / 3.0).max(slider::MIN_WIDTH);
@@ -1539,7 +1555,7 @@ fn readout(ui: &mut Ui, control: &Control, label: &str, value: f64, width: f32) 
         egui::WidgetInfo::labeled(egui::Role::Label, true, format!("{label} {text}"))
     });
     Output {
-        response: response.on_hover_text(label),
+        response: response.tip(label),
         changes: Vec::new(),
     }
 }
@@ -1588,7 +1604,7 @@ fn meter(
         )
     });
     Output {
-        response: response.on_hover_text(format!("{label}: {text}")),
+        response: response.tip(format!("{label}: {text}")),
         changes: Vec::new(),
     }
 }
@@ -1696,16 +1712,19 @@ pub fn more(ui: &mut Ui, placement: &CardPlacement, toolbar: bool) -> Vec<CardEv
     } else {
         sections::band(ui, "hud-more", "More", Some(count), open)
     };
-    let response = response.on_hover_ui(|ui| {
+    let response = response.tip_ui(|ui| {
         for f in &m.folded {
-            ui.label(format!(
-                "{}: {}",
-                f.label.as_deref().unwrap_or(&f.key),
-                f.reason.text
-            ));
+            ui.text_role(
+                TextRole::Body,
+                format!(
+                    "{}: {}",
+                    f.label.as_deref().unwrap_or(&f.key),
+                    f.reason.text
+                ),
+            );
         }
         for f in &m.inapplicable {
-            ui.weak(format!(
+            ui.muted(format!(
                 "{} (not here): {}",
                 f.label.as_deref().unwrap_or(&f.key),
                 f.reason.text
@@ -1724,13 +1743,11 @@ pub fn more(ui: &mut Ui, placement: &CardPlacement, toolbar: bool) -> Vec<CardEv
             ui.available_width().max(1.0),
             ui.spacing().interact_size.y.max(HIT_AREA),
         );
-        let entry = |ui: &mut Ui, text: String| {
-            ui.add_sized(row, egui::Button::new(text).frame_when_inactive(false))
-        };
+        let entry = |ui: &mut Ui, text: String| ui.add_sized(row, SelectableRow::new(false, text));
         for f in &m.folded {
             let name = f.label.as_deref().unwrap_or(&f.key);
             if entry(ui, format!("Show {name}"))
-                .on_hover_text(&f.reason.text)
+                .tip(&f.reason.text)
                 .clicked()
             {
                 events.push(CardEvent::Reveal(f.key.clone()));
@@ -1806,7 +1823,7 @@ mod tests {
             _: Rect,
             _: &mut Value,
         ) -> Option<Vec<Edit>> {
-            ui.label(format!("{} drawn", c.label));
+            ui.text_role(TextRole::Body, format!("{} drawn", c.label));
             Some(Vec::new())
         }
     }
