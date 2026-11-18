@@ -917,6 +917,9 @@ name = "egui-pop-fit"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ebad2ba32d4aa39014c3d1c66956f98c4d9f78f2fdcd9b7bb3bc579abee6008"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "egui-pop-hooks"
@@ -1034,15 +1037,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "egui_fit"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "14489df3d7f58e368dc0ef5508060d77b8c038c29bf3e738eb9140ad92a1beb2"
-dependencies = [
- "serde",
-]
-
-[[package]]
 name = "egui_glow"
 version = "0.37.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1058,11 +1052,11 @@ dependencies = [
 
 [[package]]
 name = "egui_hud"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "egui-pop",
+ "egui-pop-fit",
  "egui-pop-model",
- "egui_fit",
  "serde",
  "serde_json",
 ]

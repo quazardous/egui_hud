@@ -1,4 +1,4 @@
-//! A card laid out on the slot engine, `egui_fit`
+//! A card laid out on the slot engine, `egui-pop-fit`
 //! (`docs/design/controls.md`, sections 3.2 and 4).
 //!
 //! A [`Card`] is a module's card or a case: controls and chrome in their
@@ -21,7 +21,7 @@
 use core::fmt::Write as _;
 use core::ops::Range;
 
-use egui_fit as fit;
+use egui_pop_fit as fit;
 use serde::Serialize;
 
 use crate::context::{Rule, Tier};
