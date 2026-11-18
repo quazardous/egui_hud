@@ -1,6 +1,6 @@
 //! The `egui_hud` demo: a box you resize, filled with real `egui_hud`
 //! controls (a mixer channel and a light, declared as data in [`KIT`]),
-//! laid out by its slot engine (`egui_fit`), beside two previews that show
+//! laid out by its slot engine (`egui-pop-fit`), beside two previews that show
 //! what every control does.
 //!
 //! - [`kit`] reads the catalogue: the controls that specialise their value

@@ -1,14 +1,14 @@
 # egui_hud demo
 
 A web demo of [egui_hud](..), the controls framework, laid out by
-[egui_fit](https://github.com/quazardous/egui_fit) and drawn
+[egui-pop-fit](https://crates.io/crates/egui-pop-fit) and drawn
 with [egui-pop](https://github.com/quazardous/egui-pop).
 
 **Live:** <https://quazardous.github.io/egui_hud/>
 
 ## What it shows
 
-One page, as the [egui_fit demo](https://github.com/quazardous/egui_fit)
+One page, as the [egui-pop gallery](https://github.com/quazardous/egui-pop)
 lays it out, with real egui_hud controls in the box:
 
 - **the box**, in the middle: each control drawn by egui_hud with its

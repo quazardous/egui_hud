@@ -1,7 +1,7 @@
 //! What a control asks of a boxed surface (`docs/design/controls.md`,
 //! section 3.2): standard slots, size policies per representation,
 //! orientations, and its integration level per surface. Declarations
-//! only; [`crate::card`] lays them out with `egui_fit`.
+//! only; [`crate::card`] lays them out with `egui-pop-fit`.
 //!
 //! - A [`Slot`] is a width × height in allowed sizes: ¼, ⅓, ½, ⅔, ¾ of the
 //!   base unit, or whole units. Written `1/2x1`, `1x6`.
@@ -17,7 +17,7 @@
 use core::fmt;
 use core::str::FromStr;
 
-use egui_fit as fit;
+use egui_pop_fit as fit;
 use serde::{Deserialize, Serialize};
 
 use crate::model::Representation;

@@ -17,7 +17,7 @@ egui-pop = { version = "0.14", default-features = false, features = ["eframe", "
 # egui-pop's logic without egui: `when` clauses over the context keys.
 egui-pop-model = "0.10"
 # The slot layout engine.
-egui_fit = { version = "0.1", features = ["serde"] }
+egui-pop-fit = { version = "0.1.1", features = ["serde"] }
 
 [workspace.lints.rust]
 unsafe_code = "deny"
@@ -49,7 +49,7 @@ needless_pass_by_value = "allow"
 
 [package]
 name = "egui_hud"
-version = "0.7.0"
+version = "0.8.0"
 description = "Controls as data for egui: a control's purpose, value, feel and representations, cards laid out on a slot engine, resolved in context, a value flow of gestures, and renderers on egui-pop"
 keywords = ["egui", "gui", "controls", "widgets", "layout"]
 categories = ["gui"]
@@ -72,7 +72,7 @@ bench = ["render", "egui-pop/viewport"]
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
-egui_fit.workspace = true
+egui-pop-fit.workspace = true
 # `when` clauses over the context keys, without egui.
 egui-pop-model.workspace = true
 egui-pop = { workspace = true, optional = true }
