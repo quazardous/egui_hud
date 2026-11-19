@@ -30,6 +30,8 @@
 //!   beside a part ([`Marks`]: changed, held, moved) and, once a part is
 //!   drawn, its response ([`Dressing`]: names, menus, focus, hover).
 //! - [`chip`]: the HUD read-out (`Exposure +0.67 EV`).
+//! - [`hud_rect`] and [`hud_surface`]: a HUD card's rectangle and its
+//!   surface between [`crate::hud`] and egui.
 //! - [`handle`]: a handle dragged to edit a value, registered as an edit
 //!   area with egui-pop's area registry (cursor, hover card, inert while
 //!   its panel is stale).
@@ -1609,6 +1611,22 @@ pub fn handle(ui: &mut Ui, rect: Rect, id: egui::Id, area: AreaSpec) -> egui::Re
     let r = ui.interact(rect, id, sense);
     areas::register(ui, &r, area);
     r
+}
+
+/// A HUD card's rectangle ([`crate::hud::HudLayout::rect`]) as egui's:
+/// the same points, no layout maths.
+pub fn hud_rect(r: crate::hud::PointRect) -> Rect {
+    Rect::from_min_size(pos2(r.x, r.y), vec2(r.w, r.h))
+}
+
+/// A HUD surface ([`crate::hud::HudSurface`]) from egui's rectangle.
+pub fn hud_surface(r: Rect) -> crate::hud::PointRect {
+    crate::hud::PointRect {
+        x: r.min.x,
+        y: r.min.y,
+        w: r.width(),
+        h: r.height(),
+    }
 }
 
 /// The "More (n)" row under a card: egui-pop's section band (the
