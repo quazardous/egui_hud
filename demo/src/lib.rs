@@ -9,12 +9,12 @@
 //!   generic controls: mute and power toggles, the colour tag and effect
 //!   choices, an EQ curve, a colour wheel, each with its name and its
 //!   line) and the presets.
-//! - [`DemoDrawings`] draws the integrated controls: the gain's fader, the
-//!   level meter, and (through `egui_hud`'s editor drawings) the curve and
-//!   the wheel. Where a drawing cannot go, `egui_hud` draws the control's
-//!   declared fallback: the gain's knob, the curve's rows of points, the
-//!   wheel's swatch and channels. It also offers each control's faces in a
-//!   menu on its box.
+//! - [`DemoDrawings`] draws the integrated controls: the gain's fader and
+//!   the level meter. Where a drawing cannot go, `egui_hud` draws the
+//!   control's declared fallback (the gain's knob). The curve and the
+//!   wheel are `egui_hud`'s managed parts on egui-pop's editors. It words
+//!   the managed parts it knows: the beam's previews, the sends' lines.
+//!   It also offers each control's faces in a menu on its box.
 //! - [`Demo`] is the page: presets and the list of controls on the left,
 //!   the box in the middle, the previews on the right. Its model is
 //!   `egui_hud`'s [`Bench`]: the composition, the values with their
@@ -38,6 +38,7 @@ use egui_hud::model::{Control, Representation};
 use egui_hud::render::{self, Drawings, Drawn, Dressing, Edit, Look};
 use egui_hud::slot::{Integration, Orientation};
 use egui_hud::{Registry, Value};
+use egui_pop::core::icon::Icon;
 use egui_pop::egui::{self, Color32, Rect, Role, Sense, Stroke, StrokeKind, Ui, WidgetInfo};
 use serde::Deserialize;
 
@@ -54,6 +55,16 @@ pub const GAIN: &str = "gain";
 pub const MUTE: &str = "implicit:shelf/mute";
 /// The level meter's id: an indicator, drawn as a bar.
 pub const METER: &str = "meter";
+/// The beam's id: a choice whose entries show a preview each.
+pub const BEAM: &str = "beam";
+/// The markers' id: a list folded into a summary.
+pub const MARKERS: &str = "markers";
+/// The sends' id: an indicator read as lines under the card.
+pub const SENDS: &str = "sends";
+/// The effect buses the sends read.
+pub const SEND_BUSES: [&str; 2] = ["Reverb", "Delay"];
+/// The sends' shares until the desk says otherwise.
+pub const SEND_SHARES: [f64; 2] = [0.3, 0.12];
 
 /// The source code, linked from the title.
 pub const SOURCE: &str = "https://github.com/quazardous/egui_hud/tree/main/demo";
@@ -249,6 +260,53 @@ impl Drawings for DemoDrawings {
             }
             _ => EditorDrawings.draw(ui, key, control, rect, value),
         }
+    }
+
+    /// The beam's choices previewed by an icon each: a spot, a flood, a
+    /// wash.
+    fn preview(
+        &mut self,
+        _ctx: &egui::Context,
+        _key: &str,
+        control: &Control,
+        choice: &str,
+    ) -> Option<render::Preview> {
+        if control.id != BEAM {
+            return None;
+        }
+        let (icon, hint) = match choice {
+            "Spot" => (Icon::Dot, "A narrow spot"),
+            "Flood" => (Icon::Circle, "A wide flood"),
+            _ => (Icon::Square, "An even wash"),
+        };
+        Some(render::Preview::icon(icon).hint(hint))
+    }
+
+    /// The sends read from the desk: a bus and its share each.
+    fn lines(
+        &mut self,
+        _ctx: &egui::Context,
+        _key: &str,
+        control: &Control,
+        value: &Value,
+    ) -> Option<Vec<render::Line>> {
+        if control.id != SENDS {
+            return None;
+        }
+        let shares = match value {
+            Value::Floats(l) if !l.is_empty() => l.clone(),
+            _ => SEND_SHARES.to_vec(),
+        };
+        Some(
+            SEND_BUSES
+                .iter()
+                .zip(shares)
+                .map(|(bus, share)| {
+                    render::Line::new(format!("{bus}: {:.0} %", share * 100.0))
+                        .hint(format!("What the {bus} bus receives of the channel"))
+                })
+                .collect(),
+        )
     }
 
     /// A right click on a control with several faces opens its menu of

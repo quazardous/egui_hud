@@ -50,8 +50,21 @@ every control shares:
 |---|---|
 | bool | checkbox, switch, push button, lamp (read-only) |
 | number | slider, fader, knob, endless knob, scrub field, meter (read-only), read-out (read-only) |
-| one-of | menu, segmented buttons, radio list |
-| points, colour, text | curve and point list, colour wheel, text field |
+| one-of | menu, segmented buttons, radio list, menu with previews |
+| points | curve, point list, folded list, read-out lines (read-only) |
+| colour, text | colour wheel, text field |
+
+The curve and the colour wheel are egui-pop's curve editor and offset
+wheel, managed: a host gives their reset value and point limit
+(`Drawings::editor`) and may veto or redirect each change
+(`Drawings::curve_change`, `Drawings::wheel_change`); their changes come
+as `Edit::Tool` with the gesture's cause, a drag given up as
+`Edit::Cancel`. A folded list is a summary row (`12 points`) that opens
+its values under the card; read-out lines (a member's value each) show
+under the card too; a menu with previews shows a picture before each
+choice (egui-pop's icon, or the host's texture). A host words them
+through `Drawings::folded`, `Drawings::lines` and `Drawings::preview`.
+`render::error_line` says why a card could not be resolved.
 
 A face fits values, not only a type: the slider, fader and knob need a
 bounded number; the endless knob needs one that `wraps` (an angle, a

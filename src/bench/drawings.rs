@@ -1,5 +1,6 @@
-//! Drawings for the integrated controls the implicit ones declare: a
-//! curve and a colour wheel, drawn by egui-pop's editors.
+//! Drawings for a curve or a colour wheel a kit declares integrated,
+//! drawn by egui-pop's editors. The library's `curve` and `colour-wheel`
+//! faces are managed and draw the same editors themselves.
 
 use egui_pop::egui::{self, Rect, Ui};
 use egui_pop::viewport::curve::CurveEditor;
