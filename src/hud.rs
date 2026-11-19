@@ -182,17 +182,16 @@ pub fn place(
     let mut fit_cards = Vec::with_capacity(cards.len());
     for (i, c) in cards.iter().enumerate() {
         let key = region_key(c.place.anchor, c.place.side);
-        match regions.iter_mut().find(|r| r.key == key) {
-            Some(r) => r.priority = r.priority.max(c.place.priority),
-            None => {
-                let mut r = fit::Region::new(key, c.place.anchor)
-                    .with_gap(surface.gap)
-                    .with_priority(c.place.priority);
-                if c.place.side == Side::Around {
-                    r = r.around();
-                }
-                regions.push(r);
+        if let Some(r) = regions.iter_mut().find(|r| r.key == key) {
+            r.priority = r.priority.max(c.place.priority);
+        } else {
+            let mut r = fit::Region::new(key, c.place.anchor)
+                .with_gap(surface.gap)
+                .with_priority(c.place.priority);
+            if c.place.side == Side::Around {
+                r = r.around();
             }
+            regions.push(r);
         }
         fit_cards.push(
             fit::Card::sized(i as u64, key, c.width.max(0.0), c.height.max(0.0))
