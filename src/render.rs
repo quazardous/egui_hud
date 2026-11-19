@@ -768,7 +768,7 @@ fn chrome(ui: &mut Ui, p: &Placement, rect: Rect) {
             ui.rect_ui(
                 rect,
                 Layout::centered_and_justified(egui::Direction::TopDown),
-                |ui| ui.divider(),
+                UiPop::divider,
             );
         }
         _ => {}
