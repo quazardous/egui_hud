@@ -264,7 +264,7 @@ pub fn chip(ui: &mut Ui, control: &Control, value: f64) -> egui::Response {
     ui.card(Tone::Neutral, |ui| {
         ui.horizontal(|ui| {
             ui.muted(&control.label);
-            UiPop::strong(ui, shown);
+            ui.strong_text(shown);
         });
     })
     .response
@@ -652,7 +652,7 @@ pub fn card(
 /// does (its purpose), in plain words.
 pub fn line(ui: &mut Ui, control: &Control) {
     ui.set_max_width(280.0);
-    UiPop::strong(ui, &control.label);
+    ui.strong_text(&control.label);
     ui.text_role(TextRole::Body, &control.purpose);
 }
 
