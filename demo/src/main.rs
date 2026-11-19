@@ -1,6 +1,12 @@
 //! The `egui_hud` demo, in a browser (`trunk serve` in this crate's folder)
 //! or natively (`cargo run -p egui_hud_demo`).
 
+#![allow(
+    clippy::disallowed_methods,
+    clippy::disallowed_types,
+    reason = "the demo (never published) draws with egui directly; it is not held to the library's list"
+)]
+
 use egui_pop::eframe;
 
 /// The eframe application around the demo.

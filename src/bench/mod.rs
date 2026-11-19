@@ -54,6 +54,13 @@
 
 pub mod configured;
 mod drawings;
+// The bench page still draws with egui's own widgets and painter; it
+// moves onto egui-pop after the library (a follow-up of the Clippy list).
+#[expect(
+    clippy::disallowed_methods,
+    clippy::disallowed_types,
+    reason = "the bench page draws with egui directly until it moves onto egui-pop"
+)]
 pub mod ui;
 
 pub use configured::{Configured, Generic, Settings, slug};

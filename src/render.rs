@@ -35,16 +35,19 @@
 
 use std::collections::BTreeMap;
 
+use egui_pop::core::icon::{self, Icon, IconWidget};
+use egui_pop::core::indicator::{self, Indicator, Led, ValueMark};
 use egui_pop::core::input::Input;
-use egui_pop::core::kit::{Glyph, Kit};
-use egui_pop::core::knob::Knob;
+use egui_pop::core::kit::Tone;
+use egui_pop::core::knob::{Endless, Knob};
+use egui_pop::core::progress::Meter;
 use egui_pop::core::sections;
 use egui_pop::core::slider::{self, Slider, Verdict};
 use egui_pop::core::theme::TextRole;
 use egui_pop::core::tooltip::TooltipExt as _;
-use egui_pop::core::ui::UiPop as _;
-use egui_pop::core::widgets::{self, SelectableRow, ToggleChip};
-use egui_pop::egui::{self, Key, Rect, Sense, Ui, UiBuilder, Vec2, pos2, vec2};
+use egui_pop::core::ui::UiPop;
+use egui_pop::core::widgets::{self, SelectableRow, Switch, ToggleChip};
+use egui_pop::egui::{self, Layout, Rect, Ui, Vec2, pos2, vec2};
 
 use crate::card::ItemKind;
 use crate::flow::Cause;
@@ -161,10 +164,13 @@ pub fn slider_row(ui: &mut Ui, control: &Control, label: &str, value: &mut f64) 
     }
 }
 
-/// The `scrub` variant: a field whose value drags at the control's
-/// sensitivity. Ctrl is the fine mode, Alt turns detents off, Escape
-/// gives the drag up, a double click resets, the arrows step (Page Up and
-/// Page Down the coarse step), the wheel steps it under the pointer.
+/// The `scrub` variant: egui-pop's scrub field, whose value drags at the
+/// control's sensitivity (its soft range over `span / sensitivity`
+/// points). Ctrl is the fine mode, Alt turns detents off, Escape gives
+/// the drag up, a double click resets, the arrows step (Page Up and Page
+/// Down the coarse step), the wheel steps it under the pointer. An
+/// endless number (one that wraps or is open) has no field: it is the
+/// endless knob.
 pub fn scrub(
     ui: &mut Ui,
     control: &Control,
@@ -172,189 +178,90 @@ pub fn scrub(
     value: &mut f64,
     width: f32,
 ) -> Output {
-    scrub_named(ui, control, label, &control.label, value, width)
+    let free = detents_off(ui);
+    scrub_named(
+        ui,
+        control,
+        label,
+        &control.label,
+        value,
+        width,
+        true,
+        detent_hook(control, free),
+    )
 }
 
-/// [`scrub`], named `name` to assistive technology and in its tooltip.
-fn scrub_named(
+/// [`scrub`], named `name` to assistive technology and in its tooltip,
+/// `menu` whether a right click opens egui-pop's value menu, `hook` seeing
+/// each change (the detents, the host's verdict).
+#[allow(
+    clippy::too_many_arguments,
+    reason = "a part's control, label, name, value and width, and its menu and hook"
+)]
+fn scrub_named<'a>(
     ui: &mut Ui,
     control: &Control,
     label: Option<&str>,
     name: &str,
-    value: &mut f64,
+    value: &'a mut f64,
     width: f32,
+    menu: bool,
+    hook: impl FnMut(&slider::Change) -> Verdict + 'a,
 ) -> Output {
-    let n = control.value.number().cloned();
     let height = ui.spacing().interact_size.y.max(HIT_AREA);
-    let (rect, response) = ui.allocate_exact_size(vec2(width, height), Sense::click_and_drag());
-    let id = response.id;
-    let mut changes = Vec::new();
-    let mut push = |to: f64, cause: Cause, done: bool, cancelled: bool| {
-        changes.push(Change {
-            to,
-            cause,
-            done,
-            cancelled,
-        });
-    };
-    let (fine, free) = ui.input(|i| (i.modifiers.command, i.modifiers.alt));
-    let start_id = id.with("scrub-start");
-    if response.drag_started() {
-        // The travel before the drag threshold counts too (this frame's
-        // delta is added below), or a scrub lands short.
-        let before = ui.input(|i| {
-            i.pointer
-                .press_origin()
-                .zip(i.pointer.interact_pos())
-                .map_or(0.0, |(o, p)| p.x - o.x)
-        }) - response.drag_delta().x;
-        let scale = if fine { control.feel.fine } else { 1.0 };
-        ui.data_mut(|d| d.insert_temp(start_id, (*value, f64::from(before) * scale)));
-    }
-    if response.dragged()
-        && let Some((start, acc)) = ui.data(|d| d.get_temp::<(f64, f64)>(start_id))
+    if let Some(n) = control.value.number()
+        && !n.bounded()
     {
-        let dx = f64::from(response.drag_delta().x);
-        if dx != 0.0 {
-            // Fine mode slows what is added from now on, never jumps.
-            let scale = if fine { control.feel.fine } else { 1.0 };
-            let acc = acc + dx * scale;
-            ui.data_mut(|d| d.insert_temp(start_id, (start, acc)));
-            let to = control.scrubbed(start, acc, false, free);
-            if to != *value {
-                *value = to;
-                push(to, Cause::Scrub, false, false);
-            }
-        }
+        let out = knob(control, name, value, menu)
+            .size(vec2(width, height))
+            .on_change(hook)
+            .show(ui);
+        return scrubbed(slider_output(out.response, &out.changes, *value));
     }
-    if response.drag_stopped()
-        && let Some((start, _)) = ui.data_mut(|d| d.remove_temp::<(f64, f64)>(start_id))
-    {
-        if ui.input(|i| i.key_pressed(Key::Escape)) {
-            *value = start;
-            push(start, Cause::Scrub, true, true);
-        } else {
-            push(*value, Cause::Scrub, true, false);
-        }
+    let soft = control.value.number().map_or((0.0, 1.0), |n| n.soft);
+    let mut s = configure(
+        Slider::new(value, label.unwrap_or(name), soft.0..=soft.1),
+        control,
+    )
+    .scrub()
+    .size(vec2(width, height))
+    .menu(menu);
+    let span = soft.1 - soft.0;
+    if control.feel.sensitivity > 0.0 && span > 0.0 {
+        s = s.travel((span / control.feel.sensitivity) as f32);
     }
-    if response.double_clicked()
-        && let Some(n) = &n
-        && *value != n.default
-    {
-        *value = n.default;
-        push(n.default, Cause::Reset, true, false);
+    // Without a label it shows the value alone, the name in its tooltip.
+    if label.is_none() {
+        s = s.compact();
     }
-    if response.clicked() {
-        response.request_focus();
-    }
-    if response.has_focus() {
-        let (steps, pages) = ui.input(|i| {
-            let c = |k: Key| i64::from(i.num_presses(k) as u8);
-            (
-                c(Key::ArrowRight) + c(Key::ArrowUp) - c(Key::ArrowLeft) - c(Key::ArrowDown),
-                c(Key::PageUp) - c(Key::PageDown),
-            )
-        });
-        if steps != 0 || pages != 0 {
-            let mut to = control.nudged(*value, steps, fine, false);
-            if pages != 0 {
-                to = control.nudged(to, pages, false, true);
-            }
-            if to != *value {
-                *value = to;
-                push(to, Cause::Key, true, false);
-            }
-        }
-    }
-    if response.hovered() {
-        let notches: f32 = ui.input(|i| {
-            i.events
-                .iter()
-                .filter_map(|e| match e {
-                    egui::Event::MouseWheel { delta, .. } => Some(delta.y),
-                    _ => None,
-                })
-                .sum()
-        });
-        if notches != 0.0 {
-            let to = control.nudged(*value, notches.signum() as i64, fine, false);
-            if to != *value {
-                *value = to;
-                push(to, Cause::Wheel, true, false);
-            }
-        }
-    }
-    let visuals = ui.style().interact(&response);
-    let painter = ui.painter_at(rect);
-    painter.rect(
-        rect,
-        visuals.corner_radius,
-        ui.visuals().extreme_bg_color,
-        visuals.bg_stroke,
-        egui::StrokeKind::Inside,
-    );
-    let shown = n.as_ref().map_or_else(String::new, |n| n.format(*value));
-    let font = egui::TextStyle::Body.resolve(ui.style());
-    let pad = 6.0;
-    // The label only where it fits beside the value: else in the
-    // tooltip, as a narrow slider's.
-    let fits = |l: &str| {
-        let w = |t: &str| {
-            ui.painter()
-                .layout_no_wrap(t.to_owned(), font.clone(), egui::Color32::PLACEHOLDER)
-                .size()
-                .x
-        };
-        w(l) + w(&shown) + 3.0 * pad <= rect.width()
-    };
-    let label = label.filter(|l| fits(l));
-    if let Some(l) = label {
-        painter.text(
-            rect.left_center() + vec2(pad, 0.0),
-            egui::Align2::LEFT_CENTER,
-            l,
-            font.clone(),
-            ui.visuals().weak_text_color(),
-        );
-    }
-    painter.text(
-        rect.right_center() - vec2(pad, 0.0),
-        egui::Align2::RIGHT_CENTER,
-        &shown,
-        font,
-        visuals.text_color(),
-    );
-    if response.hovered() || response.dragged() {
-        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
-    }
-    let v = *value;
-    response.widget_info(|| egui::WidgetInfo::slider(true, v, name));
-    let response = if label.is_none() {
-        response.tip(name)
-    } else {
-        response
-    };
-    Output { response, changes }
+    let out = s.on_change(hook).show(ui);
+    scrubbed(slider_output(out.response, &out.changes, *value))
 }
 
-/// The HUD read-out: one line, the control's label and value.
+/// A scrub's drags reported as scrubs.
+fn scrubbed(mut out: Output) -> Output {
+    for c in &mut out.changes {
+        if c.cause == Cause::Drag {
+            c.cause = Cause::Scrub;
+        }
+    }
+    out
+}
+
+/// The HUD read-out: one line, the control's label and value, in
+/// egui-pop's card.
 pub fn chip(ui: &mut Ui, control: &Control, value: f64) -> egui::Response {
     let shown = control
         .value
         .number()
         .map_or_else(String::new, |n| n.format(value));
-    egui::Frame::new()
-        .fill(ui.visuals().window_fill)
-        .stroke(ui.visuals().window_stroke)
-        .corner_radius(HIT_AREA / 2.0)
-        .inner_margin(egui::Margin::symmetric(10, 4))
-        .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.muted(&control.label);
-                ui.section_title(shown);
-            });
-        })
-        .response
+    ui.card(Tone::Neutral, |ui| {
+        ui.horizontal(|ui| {
+            ui.muted(&control.label);
+            UiPop::strong(ui, shown);
+        });
+    })
+    .response
 }
 
 /// A control in a representation, its variant `variant` (the default when
@@ -378,14 +285,21 @@ pub fn show(
         Representation::Full => ui.available_width().clamp(120.0, 320.0),
         _ => 110.0,
     };
-    let (rect, _) = ui.allocate_exact_size(vec2(width, row), Sense::hover());
     let look = Look {
         representation,
         orientation: Orientation::Horizontal,
         variant: variant.map(str::to_owned),
         integration: Integration::Managed,
     };
-    number_at(ui, control, &look, rect, value)
+    ui.sized_ui(
+        vec2(width, row),
+        Layout::left_to_right(egui::Align::Center),
+        |ui| {
+            let rect = ui.max_rect();
+            number_at(ui, control, &look, rect, value)
+        },
+    )
+    .inner
 }
 
 /// How a part is drawn: what its placement says.
@@ -634,73 +548,83 @@ pub fn card(
         || (ui.available_width(), 0.0),
         |l| (l.rack.width, l.height()),
     );
-    let origin = ui.cursor().min;
-    let (_, response) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
     let mut edits = Vec::new();
     let mut drawn = BTreeMap::new();
     let mut events = Vec::new();
-    for p in placement.items.iter().filter(|p| p.visibility.is_shown()) {
-        let Some(r) = p.rect else { continue };
-        let slot = Rect::from_min_size(origin + vec2(r.x, r.y), vec2(r.w, r.h)).shrink(GAP / 2.0);
-        if p.kind == ItemKind::Chrome {
-            let mut child = part_ui(ui, &p.key, slot);
-            chrome(&mut child, p, slot);
-            continue;
-        }
-        let Some(control) = p.control.as_deref().and_then(|id| registry.get(id)) else {
-            continue;
-        };
-        let marks = drawings.marks(&p.key);
-        let rect = if marks.is_some() {
-            Rect::from_min_max(
-                slot.min + vec2(MARK_BEFORE, 0.0),
-                slot.max - vec2(MARK_AFTER, 0.0),
-            )
-        } else {
-            slot
-        };
-        let (changed, moved) = match &marks {
-            Some(m) => draw_marks(ui, &p.key, m, slot, rect, &mut events),
-            None => (None, None),
-        };
-        let mut child = part_ui(ui, &p.key, rect);
-        let value = values
-            .entry(p.key.clone())
-            .or_insert_with(|| default_of(control));
-        let out = part(
-            &mut child,
-            registry,
-            &p.key,
-            control,
-            &Look::of(p),
-            rect,
-            value,
-            drawings,
-        );
-        if out.quad {
-            events.push(CardEvent::Quad(p.key.clone()));
-        }
-        drawings.dress(
-            &mut child,
-            Dressing {
-                key: &p.key,
-                control,
-                rect,
-                response: out.response.as_ref(),
-                label: out.label.as_ref(),
-                changed,
-                moved,
+    // The card's box at the cursor; its parts at their rects in it.
+    let response = ui
+        .sized_ui(
+            vec2(width, height),
+            Layout::top_down(egui::Align::Min),
+            |ui| {
+                let origin = ui.max_rect().min;
+                for p in placement.items.iter().filter(|p| p.visibility.is_shown()) {
+                    let Some(r) = p.rect else { continue };
+                    let slot = Rect::from_min_size(origin + vec2(r.x, r.y), vec2(r.w, r.h))
+                        .shrink(GAP / 2.0);
+                    if p.kind == ItemKind::Chrome {
+                        part_ui(ui, &p.key, slot, |ui| chrome(ui, p, slot));
+                        continue;
+                    }
+                    let Some(control) = p.control.as_deref().and_then(|id| registry.get(id)) else {
+                        continue;
+                    };
+                    let marks = drawings.marks(&p.key);
+                    let rect = if marks.is_some() {
+                        Rect::from_min_max(
+                            slot.min + vec2(MARK_BEFORE, 0.0),
+                            slot.max - vec2(MARK_AFTER, 0.0),
+                        )
+                    } else {
+                        slot
+                    };
+                    let (changed, moved) = match &marks {
+                        Some(m) => draw_marks(ui, &p.key, m, slot, rect, &mut events),
+                        None => (None, None),
+                    };
+                    let value = values
+                        .entry(p.key.clone())
+                        .or_insert_with(|| default_of(control));
+                    let out = part_ui(ui, &p.key, rect, |child| {
+                        let out = part(
+                            child,
+                            registry,
+                            &p.key,
+                            control,
+                            &Look::of(p),
+                            rect,
+                            value,
+                            drawings,
+                        );
+                        drawings.dress(
+                            child,
+                            Dressing {
+                                key: &p.key,
+                                control,
+                                rect,
+                                response: out.response.as_ref(),
+                                label: out.label.as_ref(),
+                                changed,
+                                moved,
+                            },
+                        );
+                        out
+                    });
+                    if out.quad {
+                        events.push(CardEvent::Quad(p.key.clone()));
+                    }
+                    // Its line, in plain words, when the pointer rests on it.
+                    if !control.purpose.is_empty()
+                        && let Some(r) = out.label.as_ref().or(out.response.as_ref())
+                    {
+                        let _ = r.clone().tip_ui(|ui| line(ui, control));
+                    }
+                    edits.extend(out.edits);
+                    drawn.insert(p.key.clone(), out.drawn);
+                }
             },
-        );
-        // Its line, in plain words, when the pointer rests on it.
-        if !control.purpose.is_empty()
-            && let Some(r) = out.label.as_ref().or(out.response.as_ref())
-        {
-            let _ = r.clone().tip_ui(|ui| line(ui, control));
-        }
-        edits.extend(out.edits);
-        drawn.insert(p.key.clone(), out.drawn);
-    }
+        )
+        .response;
     if let Some(m) = &placement.more
         && m.count + m.inapplicable.len() > 0
     {
@@ -722,7 +646,7 @@ pub fn card(
 /// does (its purpose), in plain words.
 pub fn line(ui: &mut Ui, control: &Control) {
     ui.set_max_width(280.0);
-    ui.section_title(&control.label);
+    UiPop::strong(ui, &control.label);
     ui.text_role(TextRole::Body, &control.purpose);
 }
 
@@ -739,22 +663,18 @@ pub fn default_of(control: &Control) -> Value {
     }
 }
 
-/// A child ui for one part in `rect`: left to right, clipped to it.
-fn part_ui(ui: &mut Ui, key: &str, rect: Rect) -> Ui {
-    let mut child = ui.new_child(
-        UiBuilder::new()
-            .max_rect(rect)
-            .id_salt(("hud-part", key))
-            .layout(egui::Layout::left_to_right(egui::Align::Center)),
-    );
-    // A part never draws past its slot.
-    child.set_clip_rect(rect.expand(1.0).intersect(ui.clip_rect()));
-    child
+/// `add` for one part in `rect`: left to right, clipped to it.
+fn part_ui<R>(ui: &mut Ui, key: &str, rect: Rect, add: impl FnOnce(&mut Ui) -> R) -> R {
+    ui.push_id(("hud-part", key), |ui| {
+        ui.rect_ui(rect, Layout::left_to_right(egui::Align::Center), add)
+            .inner
+    })
+    .inner
 }
 
-/// A part's marks in its gutters: the changed dot before it (a click
-/// asks for a reset), then the held and moved marks after it. Returns
-/// where the changed dot and the moved mark went.
+/// A part's marks in its gutters, egui-pop's value marks: the changed
+/// dot before it (a button asking for a reset), then the held and moved
+/// marks after it. Returns where the changed dot and the moved mark went.
 fn draw_marks(
     ui: &mut Ui,
     key: &str,
@@ -765,26 +685,33 @@ fn draw_marks(
 ) -> (Option<Rect>, Option<Rect>) {
     let y = part.center().y;
     let row = 18.0_f32.min(slot.height());
-    // The dot's place answers clicks whether shown or not, so a part's
-    // focus order and its first stop do not change with its value.
-    let dot = Rect::from_center_size(
-        pos2(slot.left() + MARK_BEFORE / 2.0, y),
-        vec2(MARK_BEFORE, row),
-    );
-    let r = ui.interact(
-        dot,
-        ui.make_persistent_id(("hud-changed", key)),
-        Sense::click(),
-    );
+    let mark = |ui: &mut Ui, id: (&str, &str), at: Rect, m: Indicator| {
+        ui.push_id(id, |ui| {
+            ui.rect_ui(
+                at,
+                Layout::centered_and_justified(egui::Direction::LeftToRight),
+                |ui| ui.add(m.size(indicator::Size::Small)),
+            )
+            .inner
+        })
+        .inner
+    };
     let mut changed = None;
     if marks.changed {
-        ui.painter()
-            .circle_filled(dot.center(), 3.0, ui.visuals().selection.stroke.color);
-        let r = r.tip("Changed from its default: click to reset");
+        let dot = Rect::from_center_size(
+            pos2(slot.left() + MARK_BEFORE / 2.0, y),
+            vec2(MARK_BEFORE, row),
+        );
+        let r = mark(
+            ui,
+            ("hud-changed", key),
+            dot,
+            Indicator::mark(ValueMark::Changed).interactive("Reset to its default"),
+        );
         if r.clicked() {
             events.push(CardEvent::Reset(key.to_owned()));
         }
-        changed = Some(dot);
+        changed = Some(r.rect);
     }
     let after = |dy: f32| {
         Rect::from_center_size(
@@ -796,37 +723,22 @@ fn draw_marks(
     let both = marks.held.is_some() && marks.moved.is_some();
     let shift = if both { row / 4.0 } else { 0.0 };
     if let Some(by) = &marks.held {
-        let at = after(-shift);
-        let r = ui.interact(at, ui.make_persistent_id(("hud-held", key)), Sense::hover());
-        ui.painter().circle_filled(
-            at.center(),
-            4.0_f32.min(at.height() / 2.0),
-            ui.visuals().warn_fg_color,
+        mark(
+            ui,
+            ("hud-held", key),
+            after(-shift),
+            Indicator::mark(ValueMark::Held(by.clone())),
         );
-        r.tip(format!("Held by {by}"));
     }
     let mut moved = None;
     if let Some(by) = &marks.moved {
-        let at = after(shift);
-        let r = ui.interact(
-            at,
-            ui.make_persistent_id(("hud-moved", key)),
-            Sense::hover(),
+        let r = mark(
+            ui,
+            ("hud-moved", key),
+            after(shift),
+            Indicator::mark(ValueMark::Moved(by.clone())),
         );
-        let c = at.center();
-        let d = 4.5_f32.min(at.height() / 2.0);
-        ui.painter().add(egui::Shape::convex_polygon(
-            vec![
-                c + vec2(0.0, -d),
-                c + vec2(d, 0.0),
-                c + vec2(0.0, d),
-                c + vec2(-d, 0.0),
-            ],
-            ui.visuals().selection.stroke.color,
-            egui::Stroke::NONE,
-        ));
-        r.tip(format!("Moved by {by}"));
-        moved = Some(at);
+        moved = Some(r.rect);
     }
     (changed, moved)
 }
@@ -852,11 +764,11 @@ fn chrome(ui: &mut Ui, p: &Placement, rect: Rect) {
             });
         }
         "separator" => {
-            let y = rect.center().y;
-            ui.painter().hline(
-                rect.x_range(),
-                y,
-                ui.visuals().widgets.noninteractive.bg_stroke,
+            // A rule across the slot.
+            ui.rect_ui(
+                rect,
+                Layout::centered_and_justified(egui::Direction::TopDown),
+                |ui| ui.divider(),
             );
         }
         _ => {}
@@ -939,15 +851,13 @@ pub fn part(
     )
 }
 
-/// An integrated part with nothing to draw here.
+/// An integrated part with nothing to draw here: a muted card saying so.
 fn missing(ui: &mut Ui, control: &Control, rect: Rect) {
-    ui.painter().rect_stroke(
-        rect,
-        2.0,
-        ui.visuals().widgets.noninteractive.bg_stroke,
-        egui::StrokeKind::Inside,
-    );
-    ui.muted(format!("{}: no managed form", control.label));
+    ui.rect_ui(rect, Layout::left_to_right(egui::Align::Center), |ui| {
+        ui.card(Tone::Muted, |ui| {
+            ui.muted(format!("{}: no managed form", control.label));
+        })
+    });
 }
 
 /// A case's parts, each in its managed slot, laid out in `rect` as a
@@ -1108,7 +1018,8 @@ fn managed(
                         .name(label),
                 ),
                 "lamp" => lamp(ui, on, shown),
-                // The switch's stand-in: the checkbox, until egui-pop has one.
+                "switch" if shown.is_empty() => ui.add(Switch::without_text(&mut on).name(label)),
+                "switch" => widgets::switch(ui, &mut on, shown),
                 _ => widgets::checkbox(ui, &mut on, shown),
             };
             let r = if shown.is_empty() {
@@ -1231,25 +1142,13 @@ fn managed(
     }
 }
 
-/// The `lamp` face: a light, lit when the value is on, and its label;
-/// read only.
+/// The `lamp` face: egui-pop's LED, lit when the value is on, and its
+/// label; read only.
 fn lamp(ui: &mut Ui, on: bool, label: &str) -> egui::Response {
-    let side = ui.spacing().interact_size.y;
     let r = ui
         .horizontal(|ui| {
-            let (rect, _) = ui.allocate_exact_size(vec2(side, side), Sense::hover());
-            let v = ui.visuals();
-            let fill = if on {
-                v.selection.bg_fill
-            } else {
-                v.extreme_bg_color
-            };
-            ui.painter().circle(
-                rect.center(),
-                side * 0.3,
-                fill,
-                egui::Stroke::new(1.0, v.widgets.inactive.fg_stroke.color),
-            );
+            let led = if on { Led::On } else { Led::Off };
+            ui.add(Indicator::led(led).name(label));
             if !label.is_empty() {
                 ui.text_role(TextRole::Body, label);
             }
@@ -1286,9 +1185,9 @@ fn points(
             ui.spacing_mut().item_spacing.y = 1.0;
             for i in 0..list.len() / 2 {
                 ui.horizontal(|ui| {
-                    ui.allocate_ui_with_layout(
+                    ui.sized_ui(
                         vec2(index_w, row),
-                        egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                        Layout::centered_and_justified(egui::Direction::LeftToRight),
                         |ui| ui.muted(format!("{}", i + 1)),
                     );
                     for (j, axis) in ["x", "y"].into_iter().enumerate() {
@@ -1351,21 +1250,19 @@ fn colour(
     let row = ui.spacing().interact_size.y;
     let gap = ui.spacing().item_spacing.x;
     let side = row.min(rect.height());
-    let (swatch, sr) = ui.allocate_exact_size(Vec2::splat(side), Sense::hover());
     let hsva = egui::ecolor::Hsva::new(
         list[0].rem_euclid(1.0) as f32,
         list[1].clamp(0.0, 1.0) as f32,
         (0.5 + list[2] * 0.5).clamp(0.0, 1.0) as f32,
         1.0,
     );
-    ui.painter().rect(
-        swatch,
-        3.0,
-        egui::Color32::from(hsva),
-        ui.visuals().widgets.noninteractive.bg_stroke,
-        egui::StrokeKind::Inside,
-    );
-    sr.tip(label);
+    ui.sized_ui(
+        Vec2::splat(side),
+        Layout::centered_and_justified(egui::Direction::LeftToRight),
+        |ui| ui.add(Indicator::swatch(egui::Color32::from(hsva)).name(label)),
+    )
+    .inner
+    .tip(label);
     let names = ["Hue", "Chroma", "Luminance"];
     let ranges = [(0.0, 1.0), (0.0, 1.0), (-1.0, 1.0)];
     let w = ((rect.width() - side - 3.0 * gap) / 3.0).max(slider::MIN_WIDTH);
@@ -1484,10 +1381,10 @@ fn number_with(
             Rect::from_center_size(rect.center(), vec2(rect.width(), h.min(rect.height())))
         }
     };
-    let mut child = ui.new_child(UiBuilder::new().max_rect(bar(row.max(HIT_AREA))));
-    let ui = &mut child;
     let ctx = ui.ctx().clone();
-    match (face, look.representation) {
+    let free = detents_off(ui);
+    let menu = drawings.value_menu(key, control);
+    let body = |ui: &mut Ui| match (face, look.representation) {
         ("meter", Representation::Full) => (
             meter(ui, control, label, *value, rect.size(), vertical),
             false,
@@ -1495,21 +1392,37 @@ fn number_with(
         // A meter in less room reads its value.
         ("readout" | "meter", _) => (readout(ui, control, label, *value, rect.width()), false),
         ("scrub", Representation::Full) => (
-            scrub_named(ui, control, Some(label), label, value, rect.width()),
+            scrub_named(
+                ui,
+                control,
+                Some(label),
+                label,
+                value,
+                rect.width(),
+                menu,
+                hooked(key, control, free, drawings),
+            ),
             false,
         ),
         (_, Representation::Simplified) | ("scrub", _) => (
-            scrub_named(ui, control, None, label, value, rect.width()),
+            scrub_named(
+                ui,
+                control,
+                None,
+                label,
+                value,
+                rect.width(),
+                menu,
+                hooked(key, control, free, drawings),
+            ),
             false,
         ),
-        // The endless knob's stand-in: the knob, until egui-pop has one.
         ("knob" | "endless-knob", _) => (
             knob_in(ui, key, control, label, rect, value, drawings),
             false,
         ),
         (_, representation) => {
             let soft = control.value.number().map_or((0.0, 1.0), |n| n.soft);
-            let free = detents_off(ui);
             let size = if vertical {
                 rect.size()
             } else {
@@ -1517,7 +1430,7 @@ fn number_with(
             };
             let mut s = configure(Slider::new(value, label, soft.0..=soft.1), control)
                 .size(size)
-                .menu(drawings.value_menu(key, control));
+                .menu(menu);
             if control.feel.response == Response::Logarithmic {
                 s = s.logarithmic();
             }
@@ -1532,7 +1445,13 @@ fn number_with(
             let quad = out.quad_clicked();
             (slider_output(out.response, &out.changes, *value), quad)
         }
-    }
+    };
+    ui.rect_ui(
+        bar(row.max(HIT_AREA)),
+        Layout::left_to_right(egui::Align::Center),
+        body,
+    )
+    .inner
 }
 
 /// The `readout` face: the value as the control formats it, read only.
@@ -1542,15 +1461,13 @@ fn readout(ui: &mut Ui, control: &Control, label: &str, value: f64, width: f32) 
         .number()
         .map_or_else(|| value.to_string(), |n| n.format(value));
     let height = ui.spacing().interact_size.y.max(HIT_AREA);
-    let (rect, response) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
-    let v = ui.visuals();
-    ui.painter().text(
-        rect.center(),
-        egui::Align2::CENTER_CENTER,
-        &text,
-        egui::TextStyle::Button.resolve(ui.style()),
-        v.text_color(),
-    );
+    let response = ui
+        .sized_ui(
+            vec2(width, height),
+            Layout::centered_and_justified(egui::Direction::LeftToRight),
+            |ui| ui.text_role(TextRole::Body, &text),
+        )
+        .inner;
     response.widget_info(|| {
         egui::WidgetInfo::labeled(egui::Role::Label, true, format!("{label} {text}"))
     });
@@ -1560,8 +1477,8 @@ fn readout(ui: &mut Ui, control: &Control, label: &str, value: f64, width: f32) 
     }
 }
 
-/// The `meter` face: a bar filled to the value over the soft range, read
-/// only, along its orientation.
+/// The `meter` face: egui-pop's meter, a bar filled to the value over
+/// the soft range, read only, along its orientation.
 fn meter(
     ui: &mut Ui,
     control: &Control,
@@ -1571,38 +1488,18 @@ fn meter(
     vertical: bool,
 ) -> Output {
     let (lo, hi) = control.value.number().map_or((0.0, 1.0), |n| n.soft);
-    let share = if hi > lo {
-        ((value - lo) / (hi - lo)).clamp(0.0, 1.0) as f32
-    } else {
-        0.0
-    };
-    let (rect, response) = ui.allocate_exact_size(size, Sense::hover());
-    let v = ui.visuals();
-    let painter = ui.painter();
-    painter.rect_filled(rect, 2.0, v.extreme_bg_color);
-    let fill = if vertical {
-        Rect::from_min_max(
-            pos2(rect.left(), rect.bottom() - rect.height() * share),
-            rect.max,
-        )
-    } else {
-        Rect::from_min_max(
-            rect.min,
-            pos2(rect.left() + rect.width() * share, rect.bottom()),
-        )
-    };
-    painter.rect_filled(fill, 2.0, v.selection.bg_fill);
     let text = control
         .value
         .number()
         .map_or_else(|| value.to_string(), |n| n.format(value));
-    response.widget_info(|| {
-        egui::WidgetInfo::labeled(
-            egui::Role::ProgressIndicator,
-            true,
-            format!("{label} {text}"),
-        )
-    });
+    let mut m = Meter::new(value, lo, hi.max(lo))
+        .size(size)
+        .label(label)
+        .text(&text);
+    if vertical {
+        m = m.vertical();
+    }
+    let response = ui.add(m);
     Output {
         response: response.tip(format!("{label}: {text}")),
         changes: Vec::new(),
@@ -1619,11 +1516,21 @@ fn knob_in(
     value: &mut f64,
     drawings: &mut dyn Drawings,
 ) -> Output {
-    let soft = control.value.number().map_or((0.0, 1.0), |n| n.soft);
     let free = detents_off(ui);
-    let mut k = Knob::new(value, label, soft.0..=soft.1)
+    let menu = drawings.value_menu(key, control);
+    let out = knob(control, label, value, menu)
         .size(rect.size())
-        .menu(drawings.value_menu(key, control));
+        .on_change(hooked(key, control, free, drawings))
+        .show(ui);
+    slider_output(out.response, &out.changes, *value)
+}
+
+/// egui-pop's knob with the control's steps, unit, default and
+/// sensitivity; endless when its number wraps (an angle, a hue) or is
+/// open.
+fn knob<'a>(control: &Control, label: &str, value: &'a mut f64, menu: bool) -> Knob<'a> {
+    let soft = control.value.number().map_or((0.0, 1.0), |n| n.soft);
+    let mut k = Knob::new(value, label, soft.0..=soft.1).menu(menu);
     if let Some(n) = control.value.number() {
         k = k
             .hard(n.hard.0..=n.hard.1)
@@ -1641,14 +1548,18 @@ fn knob_in(
         if n.integer {
             k = k.integer();
         }
+        if n.wraps {
+            k = k.endless(Endless::Wrap);
+        } else if n.open {
+            k = k.endless(Endless::Unbounded);
+        }
         // The control's sensitivity: its soft range over that many points.
         let span = n.soft.1 - n.soft.0;
         if control.feel.sensitivity > 0.0 && span > 0.0 {
             k = k.travel((span / control.feel.sensitivity) as f32);
         }
     }
-    let out = k.on_change(hooked(key, control, free, drawings)).show(ui);
-    slider_output(out.response, &out.changes, *value)
+    k
 }
 
 /// A slider's or a knob's changes as a renderer's: a drag given up
@@ -1687,27 +1598,15 @@ pub fn more(ui: &mut Ui, placement: &CardPlacement, toolbar: bool) -> Vec<CardEv
     let mut open = ui.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
     let count = m.count as u64;
     let response = if toolbar {
-        let side = ui.spacing().interact_size.y.max(HIT_AREA);
-        let (rect, r) = ui.allocate_exact_size(vec2(side * 1.8, side), Sense::click());
-        let kit = Kit::of(ui.ctx());
-        let color = ui.style().interact(&r).text_color();
-        kit.glyph(Glyph::More).paint(
-            ui.painter(),
-            Rect::from_center_size(
-                pos2(rect.left() + side / 2.0, rect.center().y),
-                Vec2::splat(side * 0.6),
-            ),
-            color,
-        );
-        ui.painter().text(
-            pos2(rect.left() + side, rect.center().y),
-            egui::Align2::LEFT_CENTER,
-            count.to_string(),
-            egui::TextStyle::Small.resolve(ui.style()),
-            color,
-        );
+        // egui-pop's icon button, the count as its badge.
         let title = m.title();
-        r.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &title));
+        let r = ui.add(
+            IconWidget::new(Icon::More)
+                .size(icon::Size::Toolbar)
+                .label(&title)
+                .sense_click(),
+        );
+        Indicator::count(count).on(ui, &r, indicator::Anchor::TopEnd);
         r
     } else {
         sections::band(ui, "hud-more", "More", Some(count), open)
@@ -1743,7 +1642,7 @@ pub fn more(ui: &mut Ui, placement: &CardPlacement, toolbar: bool) -> Vec<CardEv
             ui.available_width().max(1.0),
             ui.spacing().interact_size.y.max(HIT_AREA),
         );
-        let entry = |ui: &mut Ui, text: String| ui.add_sized(row, SelectableRow::new(false, text));
+        let entry = |ui: &mut Ui, text: String| ui.sized(row, SelectableRow::new(false, text));
         for f in &m.folded {
             let name = f.label.as_deref().unwrap_or(&f.key);
             if entry(ui, format!("Show {name}"))

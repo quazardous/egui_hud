@@ -22,6 +22,12 @@
 //! - [`preview`] shows what every control does: a channel strip driven by
 //!   the mixer controls, a lamp driven by the light controls.
 
+#![allow(
+    clippy::disallowed_methods,
+    clippy::disallowed_types,
+    reason = "the demo (never published) draws with egui directly; it is not held to the library's list"
+)]
+
 mod page;
 pub mod preview;
 
