@@ -30,11 +30,15 @@
 //!   beside a part ([`Marks`]: changed, held, moved) and, once a part is
 //!   drawn, its response ([`Dressing`]: names, menus, focus, hover).
 //! - [`chip`]: the HUD read-out (`Exposure +0.67 EV`).
+//! - [`handle`]: a handle dragged to edit a value, registered as an edit
+//!   area with egui-pop's area registry (cursor, hover card, inert while
+//!   its panel is stale).
 //! - [`show`]: a control in a representation and a variant, outside a
 //!   card.
 
 use std::collections::BTreeMap;
 
+use egui_pop::core::areas::{self, AreaSpec};
 use egui_pop::core::icon::{self, Icon, IconWidget};
 use egui_pop::core::indicator::{self, Indicator, Led, ValueMark};
 use egui_pop::core::input::Input;
@@ -1585,6 +1589,28 @@ fn slider_output(response: egui::Response, changes: &[slider::Change], value: f6
     Output { response, changes }
 }
 
+/// A handle: an area a person drags to edit a value (a control moved on a
+/// card, a width, a point on the image), registered with egui-pop's area
+/// registry as an edit area once sensed, so the framework shows its drag
+/// cursor and a hover card naming what it writes and its value, and
+/// lists it for agents (`pop.ui.areas`). `area` is
+/// `AreaSpec::edit(id, control).value(..).path(..).cursor(..)`; a handle
+/// is visible at rest, so it needs no grip.
+///
+/// While the panel it is drawn in is stale (inside egui-pop's
+/// `areas::scope` with `inert`), the handle senses hover only: it shows
+/// no card and no edit cursor, and a drag does nothing.
+pub fn handle(ui: &mut Ui, rect: Rect, id: egui::Id, area: AreaSpec) -> egui::Response {
+    let sense = if areas::inert(ui) {
+        egui::Sense::hover()
+    } else {
+        egui::Sense::click_and_drag()
+    };
+    let r = ui.interact(rect, id, sense);
+    areas::register(ui, &r, area);
+    r
+}
+
 /// The "More (n)" row under a card: egui-pop's section band (the
 /// disclosure mark, "More", the count), or in a toolbar its "More tools"
 /// button with the count. Its hover lists the folded parts and why; open,
@@ -1982,5 +2008,48 @@ mod tests {
             assert!(*changed && *moved, "{key}: marks in the gutters");
         }
         assert_eq!(host.dressed.len(), 2, "the folded part is not drawn");
+    }
+
+    /// A handle's area as listed after two frames, drawn in a panel
+    /// whose state is `stale` or current, and whether it sensed a drag.
+    fn handle_area(stale: bool) -> (areas::AreaRecord, bool) {
+        let ctx = egui::Context::default();
+        let mut drags = false;
+        for _ in 0..2 {
+            let mut full = ctx.run_ui(egui::RawInput::default(), |ui| {
+                areas::scope(ui, "params", stale, |ui| {
+                    let r = handle(
+                        ui,
+                        Rect::from_min_size(pos2(10.0, 10.0), vec2(20.0, 20.0)),
+                        ui.make_persistent_id("exposure-handle"),
+                        AreaSpec::edit("hud.exposure", "Exposure")
+                            .value("+0.30 EV")
+                            .path("exposure")
+                            .cursor(egui_pop::core::pointer::DragKind::Move),
+                    );
+                    drags = r.sense.senses_drag();
+                });
+            });
+            full.textures_delta.clear();
+        }
+        let area = areas::list(&ctx)
+            .into_iter()
+            .find(|a| a.id == "hud.exposure")
+            .expect("the handle is registered");
+        (area, drags)
+    }
+
+    #[test]
+    fn a_handle_is_an_edit_area_inert_while_its_panel_is_stale() {
+        let (area, drags) = handle_area(false);
+        assert_eq!(area.kind, areas::AreaKind::Edit);
+        assert_eq!(area.control.as_deref(), Some("Exposure"));
+        assert_eq!(area.value.as_deref(), Some("+0.30 EV"));
+        assert_eq!(area.path.as_deref(), Some("exposure"));
+        assert_eq!(area.panel.as_deref(), Some("params"));
+        assert!(!area.inert && drags);
+        let (area, drags) = handle_area(true);
+        assert!(area.inert, "stale: inert");
+        assert!(!drags, "stale: a drag does nothing");
     }
 }

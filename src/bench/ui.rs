@@ -37,6 +37,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use egui_pop::core::areas::AreaSpec;
+use egui_pop::core::pointer::DragKind;
 use egui_pop::egui::{
     self, Align2, Color32, DragAndDrop, Pos2, Rect, Role, Sense, Stroke, StrokeKind, Ui, UiBuilder,
     WidgetInfo, pos2, vec2,
@@ -1048,11 +1050,18 @@ impl BenchPage {
                 Origin::Chrome { .. } => continue,
             };
             let rect = at(r).shrink(1.0);
-            let r = ui.interact(
-                rect,
-                ui.scope_id().with(("bench-handle", &key)),
-                Sense::click_and_drag(),
-            );
+            // An edit area: it moves the control on the card.
+            let mut area = AreaSpec::edit(
+                format!("bench.handle.{key}"),
+                format!("Move {}", p.label.as_deref().unwrap_or(&key)),
+            )
+            .path(key.clone())
+            .cursor(DragKind::Move);
+            if let Some(g) = p.position {
+                let unit = egui_pop_fit::TWELFTHS_PER_UNIT;
+                area = area.value(format!("column {}, row {}", g.x / unit + 1, g.y / unit + 1));
+            }
+            let r = render::handle(ui, rect, ui.scope_id().with(("bench-handle", &key)), area);
             r.dnd_set_drag_payload(Payload::Move(key.clone()));
             let name = format!("Move {key}");
             r.widget_info(|| WidgetInfo::labeled(Role::Button, true, &name));
@@ -1215,7 +1224,14 @@ impl BenchPage {
             pos2(zone.right() + 2.0, zone.top()),
             vec2(HANDLE, zone.height()),
         );
-        let r = ui.interact(rect, Self::width_handle_id(ui), Sense::drag());
+        let r = render::handle(
+            ui,
+            rect,
+            Self::width_handle_id(ui),
+            AreaSpec::edit("bench.width", "Bench width")
+                .value(format!("{:.0} points", self.bench.width))
+                .cursor(DragKind::ResizeHorizontal),
+        );
         let name = format!("Bench width, {:.0} points", self.bench.width);
         r.widget_info(|| WidgetInfo::labeled(Role::Splitter, true, &name));
         // The width follows the pointer from where the drag started, not
@@ -1236,9 +1252,6 @@ impl BenchPage {
         }
         if !r.dragged() {
             self.resize_from = None;
-        }
-        if r.hovered() || r.dragged() {
-            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
         }
         let colour = if r.hovered() || r.dragged() {
             ui.visuals().widgets.hovered.fg_stroke.color
