@@ -35,6 +35,8 @@
 //!   `controls.set`, `controls.nudge`, `controls.reset`,
 //!   `controls.context`, `controls.find`, `controls.reveal`,
 //!   `controls.reveal_all`, and what a `controls` collector reads.
+//! - [`hud`]: where HUD cards sit around and over a surface (an image),
+//!   solved by egui-pop-fit's slot regions; the folded ones listed.
 //! - `render` (feature `render`): the renderers on egui-pop.
 //! - `bench` (feature `bench`): a shelf of a host's controls composed
 //!   onto a card and tried live, and its page.
@@ -46,6 +48,7 @@ pub mod commands;
 pub mod context;
 pub mod face;
 pub mod flow;
+pub mod hud;
 pub mod model;
 pub mod registry;
 #[cfg(feature = "render")]
