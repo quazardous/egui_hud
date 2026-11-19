@@ -1,0 +1,45 @@
+# egui_hud chooses egui-pop's widgets; it draws nothing itself. These
+# lists hold its code to that: raw egui widgets, painting and reads of
+# egui's own style go through egui-pop (its widgets, `UiPop` helpers,
+# `Indicator`, `Meter`, the kit). Each reason names the replacement.
+#
+# The bench (`src/bench/ui.rs`) and the unpublished demo still draw with
+# egui directly; they say so with an `expect` or an `allow` and a reason
+# until they move too.
+
+disallowed-types = [
+    { path = "egui::TextEdit", reason = "use egui_pop::core::input::Input" },
+    { path = "egui::Button", reason = "use egui-pop's buttons (ToggleChip, RowButton, IconWidget, ui.button_tone)" },
+    { path = "egui::Label", reason = "use a text role (ui.text_role, ui.muted, ui.meta, UiPop::strong)" },
+    { path = "egui::ComboBox", reason = "use egui_pop::core::widgets::combo_box with ui.combo_box" },
+    { path = "egui::Checkbox", reason = "use egui_pop::core::widgets::checkbox" },
+    { path = "egui::RadioButton", reason = "use egui_pop::core::widgets::radio_value" },
+    { path = "egui::Slider", reason = "use egui_pop::core::slider::Slider" },
+    { path = "egui::DragValue", reason = "use egui_pop::core::slider::Slider::scrub" },
+    { path = "egui::ProgressBar", reason = "use egui_pop::core::progress::{ProgressBar, Meter}" },
+    { path = "egui::Separator", reason = "use ui.divider" },
+    { path = "egui::Frame", reason = "use ui.card" },
+    { path = "egui::Painter", reason = "draw with egui-pop's widgets and marks, never paint" },
+]
+
+disallowed-methods = [
+    { path = "egui::Ui::label", reason = "use a text role (ui.text_role, ui.muted, ui.meta)" },
+    { path = "egui::Ui::strong", reason = "egui's strong only brightens: call UiPop::strong(ui, ..)" },
+    { path = "egui::Ui::heading", reason = "use ui.section_title" },
+    { path = "egui::Ui::button", reason = "use egui-pop's buttons" },
+    { path = "egui::Ui::checkbox", reason = "use egui_pop::core::widgets::checkbox" },
+    { path = "egui::Ui::radio_value", reason = "use egui_pop::core::widgets::radio_value" },
+    { path = "egui::Ui::selectable_value", reason = "use egui_pop::core::widgets::selectable_value" },
+    { path = "egui::Ui::separator", reason = "use ui.divider" },
+    { path = "egui::Ui::add_sized", reason = "use ui.sized" },
+    { path = "egui::Ui::allocate_ui_with_layout", reason = "use ui.sized_ui" },
+    { path = "egui::Ui::new_child", reason = "use ui.rect_ui" },
+    { path = "egui::Ui::set_clip_rect", reason = "use ui.rect_ui, which clips to its rect" },
+    { path = "egui::Ui::painter", reason = "draw with egui-pop's widgets and marks, never paint" },
+    { path = "egui::Ui::painter_at", reason = "draw with egui-pop's widgets and marks, never paint" },
+    { path = "egui::Ui::visuals", reason = "egui-pop's widgets read the theme; egui_hud reads no colour" },
+    { path = "egui::Style::interact", reason = "egui-pop's widgets read the theme; egui_hud reads no colour" },
+    { path = "egui::Stroke::new", reason = "egui_hud draws no stroke" },
+    { path = "egui::Response::on_hover_text", reason = "use egui-pop's tooltip (TooltipExt::tip)" },
+    { path = "egui::Response::on_hover_ui", reason = "use egui-pop's tooltip (TooltipExt::tip_ui)" },
+]
