@@ -15,7 +15,7 @@ use egui_pop::egui::{
 };
 use serde_json::json;
 
-use crate::{Demo, SOURCE, TITLE, preview};
+use crate::{Demo, SOURCE, TITLE, handles, preview};
 
 /// The space left of the box and under it, in points.
 const MARGIN: f32 = 4.0;
@@ -548,7 +548,7 @@ impl Demo {
 
     /// The channel strip and the lamp, driven by the controls in the box
     /// (each at its default when not in it).
-    fn previews(&self, ui: &mut Ui, t: f64) {
+    fn previews(&mut self, ui: &mut Ui, t: f64) {
         ui.heading("Channel strip");
         preview::paint_strip(ui, &preview::strip(&self.channel(), t));
         ui.label(
@@ -567,6 +567,17 @@ impl Demo {
         );
         ui.add_space(8.0);
         ui.label(RichText::new("A control not in the box stays at its default.").weak());
+        ui.add_space(8.0);
+        ui.heading("Handles");
+        handles::paint(ui, &mut self.spot);
+        ui.label(
+            RichText::new(
+                "Each handle carries its kind's maths: the centre is a point, then a radius \
+                 around it, a feather outside the radius, the beam an angle. Shift snaps, \
+                 Ctrl moves finely, the wheel scales or turns, a double click resets.",
+            )
+            .weak(),
+        );
     }
 }
 
