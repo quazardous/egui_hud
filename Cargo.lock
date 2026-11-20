@@ -912,9 +912,9 @@ dependencies = [
 
 [[package]]
 name = "egui-pop"
-version = "0.19.0"
+version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c76ea7809d17bc50404f7763f35ec3a81c1d0e6e526beff9c8c426c82b96b99b"
+checksum = "335eb3e4b74114abdbfa0798d05af2128102b6a771bfdb7b4b60332b258b7945"
 dependencies = [
  "egui",
  "egui-pop-api",
@@ -927,9 +927,9 @@ dependencies = [
 
 [[package]]
 name = "egui-pop-api"
-version = "0.17.0"
+version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6c03d1581d1fbdbde19e1421905f7f2a026d350d8515c2c8a2b12ab38c993b75"
+checksum = "af30acec5c43b21222826e19f6cdbcd160fe92ac835de48c6a9d1562a4cf498a"
 dependencies = [
  "bus-contract",
  "bus-contract-crossing",
@@ -953,9 +953,9 @@ dependencies = [
 
 [[package]]
 name = "egui-pop-core"
-version = "0.16.0"
+version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "80cad1381cec7ef448d4a34f65c914530906c3585d9eb4bbddd29e09fe3ba5d6"
+checksum = "babf1aaf052689395deaa760b635cf8b4341bcc2eb473b7c8a78087f26ae5919"
 dependencies = [
  "egui",
  "egui-pop-model",
@@ -987,9 +987,9 @@ dependencies = [
 
 [[package]]
 name = "egui-pop-model"
-version = "0.12.1"
+version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "90291ab2ff030c083e0635a0dae3a23f22cd29095b2096a3ef2c01acce28b3b0"
+checksum = "dbb727a0bbb39de529db8349efe3a57ae3c5d792946f35c2b07ddecc6af62d43"
 dependencies = [
  "idna",
  "log",
@@ -1010,9 +1010,9 @@ dependencies = [
 
 [[package]]
 name = "egui-pop-viewport"
-version = "0.16.0"
+version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "122cdcb9cc62b8e68e6f7765a4c28285a66c31caa2d4de1dc184e37348f9a0a1"
+checksum = "71cf931e07713970a233617ddf4a4313531b351d4459cdf989f726236ae8feb3"
 dependencies = [
  "egui",
  "egui-pop-core",
@@ -1106,7 +1106,7 @@ dependencies = [
 
 [[package]]
 name = "egui_hud"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "egui-pop",
  "egui-pop-fit",
