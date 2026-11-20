@@ -116,12 +116,32 @@ of faces (a fader and a knob), a value that wraps. A module can likewise
 register a face overriding how a value type is drawn (a host's
 `Drawings`). Everything else is a configured generic control.
 
+## Handles
+
+`egui_hud::handle` (no egui) declares the handles a person drags on a
+surface such as an image, each with the maths of its kind: a **point**,
+a **radius** around a point (turning an angle with it, for an
+ellipse), a **feather** outside a radius (or in proportion to the
+larger radius), an **angle** around a point, a **line**'s band (a
+gradient's width). A kind gives the handle's position from the
+parameters and the parameters a drag writes; the handle adds Shift
+(snap to the axes or to 15° steps), Ctrl (fine), the wheel (scale or
+turn) and a double click's reset. An unusual shape (a path) brings its
+own maths through `HandleKind::Custom`.
+
+Over an image, egui-pop's viewport overlay draws the handles and owns
+their drags (begin, update, end, Escape, reset, wheel, the snap hook):
+`render::declare_handle` registers a handle's edit area and hover card
+with hover sense only, so it never takes that drag, and
+`render::overlay_kind` gives the overlay its look. `render::handle` is
+the form that owns its drag, where no overlay does.
+
 ## Demo
 
 **[Try it in a browser](https://quazardous.github.io/egui_hud/)**:
 a mixer channel and a light, declared as data, in a box you resize,
-with a channel strip and a lamp that show what each control does
-([source](demo)). The demo (`demo/`, not published) runs in a browser with
+with a channel strip and a lamp that show what each control does, and
+a spot light edited by handles of each kind ([source](demo)). The demo (`demo/`, not published) runs in a browser with
 [Trunk](https://trunkrs.dev):
 
 ```sh

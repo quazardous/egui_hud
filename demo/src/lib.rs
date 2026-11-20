@@ -21,6 +21,8 @@
 //!   gestures, and the resolution in the box.
 //! - [`preview`] shows what every control does: a channel strip driven by
 //!   the mixer controls, a lamp driven by the light controls.
+//! - [`handles`] shows handles that carry their own maths: a spot light's
+//!   centre, radius, feather and beam angle, dragged on a stage.
 
 #![allow(
     clippy::disallowed_methods,
@@ -28,6 +30,7 @@
     reason = "the demo (never published) draws with egui directly; it is not held to the library's list"
 )]
 
+pub mod handles;
 mod page;
 pub mod preview;
 
@@ -365,6 +368,8 @@ pub struct Demo {
     /// The edge's drag: the box's width and the pointer's x where it
     /// started.
     resize_from: Option<(f32, f32)>,
+    /// The handles preview's spot light.
+    pub spot: handles::Spot,
 }
 
 impl Default for Demo {
@@ -398,6 +403,7 @@ impl Demo {
             zone: None,
             last: None,
             resize_from: None,
+            spot: handles::Spot::default(),
         }
     }
 

@@ -41,7 +41,10 @@
 //!   surface between [`crate::hud`] and egui.
 //! - [`handle`]: a handle dragged to edit a value, registered as an edit
 //!   area with egui-pop's area registry (cursor, hover card, inert while
-//!   its panel is stale).
+//!   its panel is stale). [`declare_handle`]: a handle whose drag
+//!   another widget owns (egui-pop's viewport overlay), its edit area and
+//!   hover card only; [`overlay_kind`] maps a [`crate::handle::Look`] to
+//!   the overlay's handle kind.
 //! - [`show`]: a control in a representation and a variant, outside a
 //!   card.
 
@@ -2182,6 +2185,47 @@ pub fn handle(ui: &mut Ui, rect: Rect, id: egui::Id, area: AreaSpec) -> egui::Re
     r
 }
 
+/// A handle whose drag another widget owns (egui-pop's viewport overlay,
+/// which begins, updates, ends and cancels its drags, and takes its
+/// double clicks and wheel turns): its edit area and hover card only.
+/// It senses the hover alone, so a press over it still reaches the
+/// widget under it; the area is registered as [`handle`]'s is (cursor,
+/// hover card, `pop.ui.areas`), inert while its panel is stale.
+///
+/// `at` is the handle's centre on screen; its area is egui-pop's
+/// overlay hit target ([`HANDLE_TARGET`] wide).
+pub fn declare_handle(ui: &mut Ui, at: egui::Pos2, id: egui::Id, area: AreaSpec) -> egui::Response {
+    let rect = Rect::from_center_size(at, Vec2::splat(HANDLE_TARGET));
+    let r = ui.interact(rect, id, egui::Sense::hover());
+    areas::register(ui, &r, area);
+    r
+}
+
+/// A declared handle's area, in points: egui-pop's overlay hit target.
+pub const HANDLE_TARGET: f32 = 2.0 * egui_pop::viewport::overlay::HIT_RADIUS;
+
+/// How egui-pop's overlay draws and hits a handle of this look.
+pub fn overlay_kind(look: crate::handle::Look) -> egui_pop::viewport::overlay::HandleKind {
+    use crate::handle::Look;
+    use egui_pop::viewport::overlay::HandleKind as K;
+    match look {
+        Look::Move => K::Move,
+        Look::Point => K::Point,
+        Look::Corner => K::Corner,
+        Look::Edge => K::Edge,
+        Look::Size => K::Size,
+        Look::Rotate => K::Rotate,
+        Look::Feather => K::Feather,
+        Look::Control => K::Control,
+    }
+}
+
+/// A handle's position ([`crate::handle::Point`], surface units) as
+/// egui's point, with no mapping (the host maps image to screen).
+pub fn handle_pos(p: crate::handle::Point) -> egui::Pos2 {
+    pos2(p[0] as f32, p[1] as f32)
+}
+
 /// A HUD card's rectangle ([`crate::hud::HudLayout::rect`]) as egui's:
 /// the same points, no layout maths.
 pub fn hud_rect(r: crate::hud::PointRect) -> Rect {
@@ -2659,5 +2703,86 @@ mod tests {
         let (area, drags) = handle_area(true);
         assert!(area.inert, "stale: inert");
         assert!(!drags, "stale: a drag does nothing");
+    }
+
+    /// Runs passes over a surface sensing drags (the overlay's stand-in)
+    /// with a declared handle on top, the pointer pressed at the handle
+    /// and moved after: whether the surface took the drag, whether the
+    /// handle sensed one, and the handle's area.
+    fn declared_over_a_surface() -> (bool, bool, areas::AreaRecord) {
+        let ctx = egui::Context::default();
+        let at = pos2(50.0, 50.0);
+        let (mut surface_dragged, mut handle_drags) = (false, false);
+        for frame in 0..8_u8 {
+            let mut input = egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(200.0, 200.0))),
+                ..Default::default()
+            };
+            let pointer = at + vec2(f32::from(frame.max(2)) * 4.0 - 8.0, 0.0);
+            input.events.push(egui::Event::PointerMoved(pointer));
+            if frame == 1 {
+                input.events.push(egui::Event::PointerButton {
+                    pos: pointer,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                });
+            }
+            let mut full = ctx.run_ui(input, |ui| {
+                let surface = ui.interact(
+                    Rect::from_min_size(pos2(0.0, 0.0), vec2(200.0, 200.0)),
+                    egui::Id::unique("surface"),
+                    egui::Sense::click_and_drag(),
+                );
+                surface_dragged |= surface.dragged();
+                let r = declare_handle(
+                    ui,
+                    at,
+                    egui::Id::unique("radius-handle"),
+                    AreaSpec::edit("mask.radius", "Radius")
+                        .value("20 px")
+                        .path("radius"),
+                );
+                handle_drags |= r.sense.senses_drag() || r.dragged();
+            });
+            full.textures_delta.clear();
+        }
+        let area = areas::list(&ctx)
+            .into_iter()
+            .find(|a| a.id == "mask.radius")
+            .expect("the declared handle is registered");
+        (surface_dragged, handle_drags, area)
+    }
+
+    #[test]
+    fn a_declared_handle_takes_no_drag_and_is_an_edit_area() {
+        let (surface_dragged, handle_drags, area) = declared_over_a_surface();
+        assert!(!handle_drags, "a declared handle senses no drag");
+        assert!(surface_dragged, "the surface under it keeps its drag");
+        assert_eq!(area.kind, areas::AreaKind::Edit);
+        assert_eq!(area.control.as_deref(), Some("Radius"));
+        assert_eq!(area.value.as_deref(), Some("20 px"));
+        assert_eq!(area.path.as_deref(), Some("radius"));
+        assert!(!area.inert);
+        assert!((area.rect.width() - HANDLE_TARGET).abs() < 1e-3);
+    }
+
+    #[test]
+    fn each_look_maps_to_the_overlay_s_kind() {
+        use crate::handle::Look;
+        use egui_pop::viewport::overlay::HandleKind as K;
+        let all = [
+            (Look::Move, K::Move),
+            (Look::Point, K::Point),
+            (Look::Corner, K::Corner),
+            (Look::Edge, K::Edge),
+            (Look::Size, K::Size),
+            (Look::Rotate, K::Rotate),
+            (Look::Feather, K::Feather),
+            (Look::Control, K::Control),
+        ];
+        for (look, kind) in all {
+            assert_eq!(overlay_kind(look), kind);
+        }
     }
 }
