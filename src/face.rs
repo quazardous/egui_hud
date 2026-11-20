@@ -11,8 +11,8 @@
 //! |---|---|
 //! | bool | `checkbox`, `switch`, `push-button`, `lamp` (read-only) |
 //! | number | `slider`, `fader`, `knob`, `endless-knob`, `scrub`, `meter` (read-only), `readout` (read-only) |
-//! | one-of | `menu`, `segmented`, `radio` |
-//! | points | `curve`, `point-list` |
+//! | one-of | `menu`, `segmented`, `radio`, `preview-menu` |
+//! | points | `curve`, `point-list`, `folded-list`, `readout-lines` (read-only) |
 //! | colour | `colour-wheel` |
 //! | text | `text-field` |
 //!
@@ -34,7 +34,7 @@ use std::sync::LazyLock;
 
 use crate::model::{Control, Intent, Kind, Representation, ValueSpec, ValueType, Variant};
 use crate::registry::slider_policy;
-use crate::slot::{Fallback, Grow, Integration, Orientation, Size, SizePolicy, Slot};
+use crate::slot::{Grow, Orientation, Size, SizePolicy, Slot};
 
 /// Which values of its type a face can draw.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -152,8 +152,9 @@ fn row_growing() -> SizePolicy {
     SizePolicy::growable(FULL_MIN, Slot::ROW, Slot::wide(4), Grow::Width)
 }
 
-/// An editor that draws itself in a block of `rows`, a row when compact,
-/// its values as the value type's managed rows where it cannot go.
+/// An editor drawn by egui-pop (its curve editor, its colour wheel) in
+/// a block of `rows`; a row when compact, where the value type's rows
+/// (points, a swatch and channels) are drawn instead.
 fn drawn(id: &str, label: &str, rows: u32) -> Variant {
     Variant::new(id, label)
         .slot(
@@ -166,18 +167,6 @@ fn drawn(id: &str, label: &str, rows: u32) -> Variant {
             ),
         )
         .slot(Representation::Compact, SizePolicy::fixed(Slot::ROW))
-        .integrated(
-            crate::model::Surface::Panel,
-            Integration::integrated(Fallback::ValueType),
-        )
-        .integrated(
-            crate::model::Surface::Dock,
-            Integration::integrated(Fallback::ValueType),
-        )
-        .integrated(
-            crate::model::Surface::Float,
-            Integration::integrated(Fallback::ValueType),
-        )
 }
 
 fn build() -> Vec<Face> {
@@ -389,6 +378,18 @@ fn build() -> Vec<Face> {
                 )
                 .orientations(&[Orientation::Vertical]),
         ),
+        face(
+            "preview-menu",
+            "Menu with previews",
+            ValueType::OneOf,
+            Fit::Any,
+            false,
+            None,
+            Variant::new("preview-menu", "Menu with previews")
+                .slot(Full, slider_policy())
+                .slot(Compact, SizePolicy::fixed(Slot::HALF))
+                .orientations(&h),
+        ),
         // points, colour, text: their editors
         face(
             "curve",
@@ -407,6 +408,28 @@ fn build() -> Vec<Face> {
             false,
             None,
             Variant::new("point-list", "Point list")
+                .slot(Full, row_growing())
+                .orientations(&h),
+        ),
+        face(
+            "folded-list",
+            "Folded list",
+            ValueType::Points,
+            Fit::Any,
+            false,
+            None,
+            Variant::new("folded-list", "Folded list")
+                .slot(Full, row_growing())
+                .orientations(&h),
+        ),
+        face(
+            "readout-lines",
+            "Read-out lines",
+            ValueType::Points,
+            Fit::Any,
+            true,
+            None,
+            Variant::new("readout-lines", "Read-out lines")
                 .slot(Full, row_growing())
                 .orientations(&h),
         ),

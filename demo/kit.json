@@ -448,6 +448,117 @@
       "readout": {
         "when": "active"
       }
+    },
+    {
+      "id": "beam",
+      "label": "Beam",
+      "purpose": "Shapes the light's beam: a narrow spot, a wide flood or an even wash",
+      "value": {
+        "type": "one-of",
+        "choices": [
+          "Spot",
+          "Flood",
+          "Wash"
+        ],
+        "default": "Spot"
+      },
+      "connector": {
+        "jacks": [
+          {
+            "name": "value",
+            "type": "one-of"
+          }
+        ],
+        "gestures": [
+          "keys"
+        ],
+        "intents": [
+          "set"
+        ],
+        "signals": [
+          "preview",
+          "commit",
+          "cancel"
+        ]
+      },
+      "faces": [
+        "preview-menu",
+        "menu"
+      ],
+      "feel": {
+        "sensitivity": 0.01,
+        "fine": 0.1,
+        "response": "linear"
+      }
+    },
+    {
+      "id": "markers",
+      "label": "Markers",
+      "purpose": "Points in the song where the channel's level changes: a time and a level each",
+      "value": {
+        "type": "other",
+        "stored": "points"
+      },
+      "connector": {
+        "jacks": [
+          {
+            "name": "value",
+            "type": "points"
+          }
+        ],
+        "gestures": [],
+        "intents": [
+          "set"
+        ],
+        "signals": [
+          "preview",
+          "commit",
+          "cancel"
+        ]
+      },
+      "faces": [
+        "folded-list",
+        "point-list"
+      ],
+      "feel": {
+        "sensitivity": 0.01,
+        "fine": 0.1,
+        "response": "linear"
+      }
+    },
+    {
+      "id": "sends",
+      "label": "Sends",
+      "purpose": "How much of the channel each effect bus receives, read from the desk",
+      "kind": "indicator",
+      "value": {
+        "type": "other",
+        "stored": "points"
+      },
+      "connector": {
+        "jacks": [
+          {
+            "name": "value",
+            "type": "points",
+            "read_only": true
+          }
+        ],
+        "gestures": [],
+        "intents": [],
+        "signals": [
+          "preview",
+          "commit",
+          "cancel"
+        ]
+      },
+      "faces": [
+        "readout-lines"
+      ],
+      "feel": {
+        "sensitivity": 0.01,
+        "fine": 0.1,
+        "response": "linear"
+      }
     }
   ],
   "groups": {
@@ -456,7 +567,10 @@
     "meter": "Mixer channel",
     "intensity": "Light",
     "temperature": "Light",
-    "hue": "Light"
+    "hue": "Light",
+    "beam": "Light",
+    "markers": "Mixer channel",
+    "sends": "Mixer channel"
   },
   "configured": [
     {

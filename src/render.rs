@@ -19,9 +19,16 @@
 //!   tooltip; vertical: a fader, the value at the top and the label at the
 //!   bottom), the `knob` variant as egui-pop's knob, the `scrub` variant
 //!   and every simplified form as a scrub field ([`scrub`]).
-//! - Other value types: a toggle, a drop-down, `points` as numbered rows
-//!   of x and y, a `colour` as a swatch and its channels, text as a
-//!   field.
+//! - Other value types: a toggle, a drop-down (its entries with a
+//!   preview each in the `preview-menu` face, [`Preview`]), text as a
+//!   field. `points`: egui-pop's curve editor (the `curve` face, full),
+//!   a list folded into a summary that opens its values under the card
+//!   (`folded-list`, [`Folded`]), read-out lines under the card
+//!   (`readout-lines`, [`Line`]), else numbered rows of x and y. A
+//!   `colour`: egui-pop's offset colour wheel (the `colour-wheel` face,
+//!   full), else a swatch and its channels. The editors report
+//!   [`Edit::Tool`] and [`Edit::Cancel`].
+//! - [`error_line`]: a card that could not be resolved, said in a line.
 //! - [`configure`] and [`detent_hook`] give egui-pop's slider and knob a
 //!   control's steps, sign and detents.
 //! - A host dresses what the framework draws through [`Drawings`]: the
@@ -50,10 +57,16 @@ use egui_pop::core::progress::Meter;
 use egui_pop::core::sections;
 use egui_pop::core::slider::{self, Slider, Verdict};
 use egui_pop::core::theme::TextRole;
+use egui_pop::core::thumbnail::Thumbnail;
 use egui_pop::core::tooltip::TooltipExt as _;
 use egui_pop::core::ui::UiPop;
 use egui_pop::core::widgets::{self, SelectableRow, Switch, ToggleChip};
 use egui_pop::egui::{self, Layout, Rect, Ui, Vec2, pos2, vec2};
+use egui_pop::viewport::change::{
+    Cause as ToolCause, Change as ToolChange, Verdict as ToolVerdict,
+};
+use egui_pop::viewport::curve::{self as curves, CurveEditor};
+use egui_pop::viewport::wheel::{ColorWheel, WheelValue};
 
 use crate::card::ItemKind;
 use crate::flow::Cause;
@@ -350,13 +363,175 @@ pub enum Edit {
     /// Another value set (a toggle, a choice, a curve's point, a
     /// colour's channel); `done` at the end of its gesture.
     Set { key: String, to: Value, done: bool },
+    /// A value set by one of egui-pop's editors (a curve's points, a
+    /// wheel's colour), by `cause`: a drag's frames are not `done`, its
+    /// release is (one undo step); a key, a click, a point added or
+    /// deleted are each `done`.
+    Tool {
+        key: String,
+        to: Value,
+        cause: ToolCause,
+        done: bool,
+    },
+    /// An editor's drag given up (the cancel key): what its frames set
+    /// is put back, with no trace.
+    Cancel { key: String },
 }
 
 impl Edit {
     pub fn key(&self) -> &str {
         match self {
-            Edit::Number { key, .. } | Edit::Set { key, .. } => key,
+            Edit::Number { key, .. }
+            | Edit::Set { key, .. }
+            | Edit::Tool { key, .. }
+            | Edit::Cancel { key } => key,
         }
+    }
+
+    /// The same edit for part `key`.
+    fn rekeyed(self, key: String) -> Edit {
+        match self {
+            Edit::Number { change, .. } => Edit::Number { key, change },
+            Edit::Set { to, done, .. } => Edit::Set { key, to, done },
+            Edit::Tool {
+                to, cause, done, ..
+            } => Edit::Tool {
+                key,
+                to,
+                cause,
+                done,
+            },
+            Edit::Cancel { .. } => Edit::Cancel { key },
+        }
+    }
+}
+
+/// How an editor part (a curve, a colour wheel) is set up, as the host
+/// knows it: the value its reset goes back to, how many points a curve
+/// takes.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Editor {
+    /// The value a reset puts back: a curve's points (`x0, y0, x1, …`),
+    /// a wheel's hue (in turns), chroma and luminance. `None`: a curve's
+    /// identity, a wheel's neutral centre.
+    pub default: Option<Value>,
+    /// The most points a curve holds.
+    pub max_points: Option<usize>,
+}
+
+/// A long list folded into a summary (`12 points`): its row shows the
+/// label and the summary, a click opens its values under the card.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Folded {
+    /// What the row says of the list (`12 points`).
+    pub summary: String,
+    /// Its values open, a line each (a point, so many values).
+    pub lines: Vec<String>,
+    /// The hint on the folded row (`Show the values`).
+    pub show: String,
+    /// The hint on the open row (`Hide the values`).
+    pub hide: String,
+}
+
+impl Folded {
+    /// A list's values `per_line` a line, numbered from 1, at
+    /// `precision` decimals; its summary counts the values.
+    pub fn of(value: &Value, per_line: usize, precision: usize) -> Self {
+        let values: Vec<String> = match value {
+            Value::Floats(l) => l.iter().map(|x| format!("{x:.precision$}")).collect(),
+            Value::Ints(l) => l.iter().map(ToString::to_string).collect(),
+            _ => Vec::new(),
+        };
+        let lines = values
+            .chunks(per_line.max(1))
+            .enumerate()
+            .map(|(i, line)| format!("{}: {}", i + 1, line.join("  ")))
+            .collect();
+        Self {
+            summary: format!("{} values", values.len()),
+            lines,
+            show: "Show the values".into(),
+            hide: "Hide the values".into(),
+        }
+    }
+}
+
+/// One read-out line under a card (a member's value: `Circle: 80 %`),
+/// read only, with what it is in its hint.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Line {
+    pub text: String,
+    pub hint: Option<String>,
+}
+
+impl Line {
+    pub fn new(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            hint: None,
+        }
+    }
+
+    pub fn hint(mut self, hint: impl Into<String>) -> Self {
+        self.hint = Some(hint.into());
+        self
+    }
+
+    /// A list's values as lines, numbered from 1.
+    pub fn numbered(value: &Value) -> Vec<Line> {
+        let values: Vec<String> = match value {
+            Value::Floats(l) => l.iter().map(|x| format!("{x:.3}")).collect(),
+            Value::Ints(l) => l.iter().map(ToString::to_string).collect(),
+            _ => Vec::new(),
+        };
+        values
+            .into_iter()
+            .enumerate()
+            .map(|(i, v)| Line::new(format!("{}: {v}", i + 1)))
+            .collect()
+    }
+}
+
+/// A choice's preview in the `preview-menu` face: a picture before its
+/// words, in the menu and before the menu for the chosen one.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Preview {
+    pub image: PreviewImage,
+    /// What the preview shows, in words (its accessible name and hint).
+    pub hint: Option<String>,
+}
+
+/// What a preview shows.
+#[derive(Clone, Debug, PartialEq)]
+pub enum PreviewImage {
+    /// One of egui-pop's icons.
+    Icon(Icon),
+    /// A small picture the host made (a texture and its size in pixels),
+    /// drawn as egui-pop's thumbnail.
+    Texture {
+        texture: egui::TextureId,
+        size: [u32; 2],
+    },
+}
+
+impl Preview {
+    pub fn icon(icon: Icon) -> Self {
+        Self {
+            image: PreviewImage::Icon(icon),
+            hint: None,
+        }
+    }
+
+    pub fn texture(texture: egui::TextureId, size: [u32; 2]) -> Self {
+        Self {
+            image: PreviewImage::Texture { texture, size },
+            hint: None,
+        }
+    }
+
+    pub fn hint(mut self, hint: impl Into<String>) -> Self {
+        self.hint = Some(hint.into());
+        self
     }
 }
 
@@ -467,6 +642,68 @@ pub trait Drawings {
     /// Called once a part is drawn: the host's own touches on its
     /// response (names, menus, focus, hover text).
     fn dress(&mut self, _ui: &mut Ui, _dressing: Dressing<'_>) {}
+
+    /// How part `key`'s editor (a curve, a colour wheel) is set up.
+    fn editor(&mut self, _key: &str, _control: &Control) -> Editor {
+        Editor::default()
+    }
+
+    /// The host's verdict on a change of part `key`'s curve before it is
+    /// written (a step on its bus that may veto or redirect it).
+    fn curve_change(
+        &mut self,
+        _key: &str,
+        _control: &Control,
+        _change: &ToolChange<Vec<[f32; 2]>>,
+    ) -> ToolVerdict<Vec<[f32; 2]>> {
+        ToolVerdict::Allow
+    }
+
+    /// The host's verdict on a change of part `key`'s colour wheel.
+    fn wheel_change(
+        &mut self,
+        _key: &str,
+        _control: &Control,
+        _change: &ToolChange<WheelValue>,
+    ) -> ToolVerdict<WheelValue> {
+        ToolVerdict::Allow
+    }
+
+    /// Part `key`'s list folded (`folded-list`): its summary and its
+    /// lines in the host's words; [`Folded::of`] when `None`.
+    fn folded(
+        &mut self,
+        _ctx: &egui::Context,
+        _key: &str,
+        _control: &Control,
+        _value: &Value,
+    ) -> Option<Folded> {
+        None
+    }
+
+    /// Part `key`'s read-out lines (`readout-lines`, a member's value
+    /// each); [`Line::numbered`] when `None`.
+    fn lines(
+        &mut self,
+        _ctx: &egui::Context,
+        _key: &str,
+        _control: &Control,
+        _value: &Value,
+    ) -> Option<Vec<Line>> {
+        None
+    }
+
+    /// The preview of one choice of part `key` (`preview-menu`); none
+    /// when `None`.
+    fn preview(
+        &mut self,
+        _ctx: &egui::Context,
+        _key: &str,
+        _control: &Control,
+        _choice: &str,
+    ) -> Option<Preview> {
+        None
+    }
 }
 
 /// No drawings of the host's own: every integrated part falls back.
@@ -511,6 +748,16 @@ pub struct PartOutput {
     pub label: Option<egui::Response>,
     /// Its quad button (a picker) was clicked.
     pub quad: bool,
+    /// What it shows under the card (an open list's values, read-out
+    /// lines), drawn by [`card`] after its box.
+    pub below: Option<Below>,
+}
+
+/// What a part shows under its card, after the card's box: an open
+/// list's values, or read-out lines.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Below {
+    Lines(Vec<Line>),
 }
 
 /// A card's request to its host.
@@ -557,6 +804,7 @@ pub fn card(
     let mut edits = Vec::new();
     let mut drawn = BTreeMap::new();
     let mut events = Vec::new();
+    let mut below = Vec::new();
     // The card's box at the cursor; its parts at their rects in it.
     let response = ui
         .sized_ui(
@@ -627,10 +875,14 @@ pub fn card(
                     }
                     edits.extend(out.edits);
                     drawn.insert(p.key.clone(), out.drawn);
+                    below.extend(out.below.map(|b| (p.key.clone(), b)));
                 }
             },
         )
         .response;
+    for (key, b) in &below {
+        below_ui(ui, key, b);
+    }
     if let Some(m) = &placement.more
         && m.count + m.inapplicable.len() > 0
     {
@@ -646,6 +898,33 @@ pub fn card(
         events,
         drawn,
     }
+}
+
+/// What a part shows under its card, indented: its lines, wrapped to
+/// the card's width, each with its hint.
+fn below_ui(ui: &mut Ui, key: &str, below: &Below) {
+    let Below::Lines(lines) = below;
+    ui.push_id(("hud-below", key), |ui| {
+        ui.indent("lines", |ui| {
+            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
+            for l in lines {
+                let r = ui.text_role(TextRole::Body, &l.text);
+                if let Some(h) = &l.hint {
+                    let _ = r.tip(h);
+                }
+            }
+        });
+    });
+}
+
+/// A card that could not be resolved (its resolution's error), said in
+/// a line in the danger tone, where the card would be.
+pub fn error_line(ui: &mut Ui, message: &str) -> egui::Response {
+    ui.scope(|ui| {
+        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
+        ui.text_tone(Tone::Danger, message)
+    })
+    .inner
 }
 
 /// A control's line, as its tooltip shows it: its name, then what it
@@ -803,6 +1082,7 @@ pub fn part(
         response: None,
         label: None,
         quad: false,
+        below: None,
     };
     let with = |m: Managed, drawn: Drawn| PartOutput {
         edits: m.edits,
@@ -810,6 +1090,7 @@ pub fn part(
         response: m.response,
         label: m.label,
         quad: m.quad,
+        below: m.below,
     };
     if let Integration::Integrated { fallback } = &look.integration {
         // Its own drawing goes only where its full form was given.
@@ -836,8 +1117,18 @@ pub fn part(
                 )
             }
             Fallback::ValueType => {
+                // A list's or a colour's own rows, not its face's editor.
+                let plain = matches!(
+                    control.value.value_type(),
+                    ValueType::Points | ValueType::Colour
+                );
                 let look = Look {
                     integration: Integration::Managed,
+                    variant: if plain {
+                        Some(VALUE_TYPE.to_owned())
+                    } else {
+                        look.variant.clone()
+                    },
                     ..look.clone()
                 };
                 with(
@@ -908,16 +1199,9 @@ fn parts(
     let out = card_at(ui, registry, &placement, &mut inner, drawings);
     let _ = value;
     out.into_iter()
-        .map(|e| match e {
-            Edit::Number { key: k, change } => Edit::Number {
-                key: format!("{key}.{k}"),
-                change,
-            },
-            Edit::Set { key: k, to, done } => Edit::Set {
-                key: format!("{key}.{k}"),
-                to,
-                done,
-            },
+        .map(|e| {
+            let k = format!("{key}.{}", e.key());
+            e.rekeyed(k)
         })
         .collect()
 }
@@ -939,6 +1223,7 @@ struct Managed {
     response: Option<egui::Response>,
     label: Option<egui::Response>,
     quad: bool,
+    below: Option<Below>,
 }
 
 impl Managed {
@@ -948,6 +1233,7 @@ impl Managed {
             response: None,
             label: None,
             quad: false,
+            below: None,
         }
     }
 
@@ -957,9 +1243,14 @@ impl Managed {
             response: Some(response),
             label: None,
             quad: false,
+            below: None,
         }
     }
 }
+
+/// The variant a value type's fallback is drawn in: its plain rows (a
+/// list's points, a colour's swatch and channels), not a face's editor.
+const VALUE_TYPE: &str = "value-type";
 
 /// A managed part by its value type, dressed by the host.
 fn managed(
@@ -1083,6 +1374,33 @@ fn managed(
                     })
                     .response
                 }
+                "preview-menu" => {
+                    let previews: Vec<Option<Preview>> = choices
+                        .iter()
+                        .map(|c| drawings.preview(&ctx, key, control, c))
+                        .collect();
+                    let at = choices.iter().position(|c| *c == chosen);
+                    ui.horizontal(|ui| {
+                        if let Some(p) = at.and_then(|i| previews[i].as_ref()) {
+                            preview_ui(ui, p, &shown);
+                        }
+                        let combo = widgets::combo_box(("hud-choice", key))
+                            .selected_text(shown.clone())
+                            .width(ui.available_width());
+                        ui.combo_box(combo, |ui| {
+                            for ((c, w), p) in choices.iter().zip(&words).zip(&previews) {
+                                ui.horizontal(|ui| {
+                                    if let Some(p) = p {
+                                        preview_ui(ui, p, w);
+                                    }
+                                    widgets::selectable_value(ui, &mut chosen, c.clone(), w);
+                                });
+                            }
+                        })
+                        .response
+                    })
+                    .inner
+                }
                 _ => {
                     let combo = widgets::combo_box(("hud-choice", key))
                         .selected_text(shown)
@@ -1111,12 +1429,52 @@ fn managed(
         }
         ValueSpec::Other { stored } => match stored {
             ValueType::Points => {
-                let menu = drawings.value_menu(key, control);
-                Managed::edits(points(ui, key, label, rect, value, menu))
+                let face = if look.variant.as_deref() == Some(VALUE_TYPE) {
+                    VALUE_TYPE
+                } else {
+                    control
+                        .face_or_default(look.variant.as_deref())
+                        .map_or("point-list", |v| v.id.as_str())
+                };
+                let full = look.representation == Representation::Full;
+                match face {
+                    "curve" if full => curve(ui, key, control, label, rect, value, drawings),
+                    "folded-list" => {
+                        let folded = drawings
+                            .folded(&ctx, key, control, value)
+                            .unwrap_or_else(|| Folded::of(value, 8, 3));
+                        folded_list(ui, key, label, &folded)
+                    }
+                    "readout-lines" => {
+                        let lines = drawings
+                            .lines(&ctx, key, control, value)
+                            .unwrap_or_else(|| Line::numbered(value));
+                        let r = ui.text_role(TextRole::Body, label);
+                        Managed {
+                            below: Some(Below::Lines(lines)),
+                            ..Managed::of(Vec::new(), r)
+                        }
+                    }
+                    _ => {
+                        let menu = drawings.value_menu(key, control);
+                        Managed::edits(points(ui, key, label, rect, value, menu))
+                    }
+                }
             }
             ValueType::Colour => {
-                let menu = drawings.value_menu(key, control);
-                Managed::edits(colour(ui, key, label, rect, value, menu))
+                let face = if look.variant.as_deref() == Some(VALUE_TYPE) {
+                    VALUE_TYPE
+                } else {
+                    control
+                        .face_or_default(look.variant.as_deref())
+                        .map_or("colour-wheel", |v| v.id.as_str())
+                };
+                if face == "colour-wheel" && look.representation == Representation::Full {
+                    wheel(ui, key, control, label, rect, value, drawings)
+                } else {
+                    let menu = drawings.value_menu(key, control);
+                    Managed::edits(colour(ui, key, label, rect, value, menu))
+                }
             }
             ValueType::Text => {
                 let mut text = match value {
@@ -1145,6 +1503,217 @@ fn managed(
                 Managed::of(Vec::new(), r)
             }
         },
+    }
+}
+
+/// A choice's preview: egui-pop's icon, or the host's picture as a
+/// thumbnail, named by its hint (or the choice's words).
+fn preview_ui(ui: &mut Ui, preview: &Preview, words: &str) -> egui::Response {
+    let name = preview.hint.as_deref().unwrap_or(words);
+    let r = match &preview.image {
+        PreviewImage::Icon(icon) => ui.add(Indicator::icon(*icon).name(name)),
+        PreviewImage::Texture { texture, size } => {
+            let h = ui.spacing().interact_size.y;
+            let w = (h * size[0] as f32 / size[1].max(1) as f32).clamp(h / 2.0, h * 3.0);
+            ui.add(Thumbnail::new(name).image(*texture, *size).size(vec2(w, h)))
+        }
+    };
+    match &preview.hint {
+        Some(h) => r.tip(h),
+        None => r,
+    }
+}
+
+/// A tool's changes as edits of part `key`: each as it was written, by
+/// its cause; a drag that stopped with no change done was given up.
+fn tool_edits<T>(
+    key: &str,
+    changes: &[ToolChange<T>],
+    response: &egui::Response,
+    value: impl Fn(&T) -> Value,
+) -> Vec<Edit> {
+    let mut edits: Vec<Edit> = changes
+        .iter()
+        .map(|c| Edit::Tool {
+            key: key.to_owned(),
+            to: value(&c.to),
+            cause: c.cause,
+            done: c.done,
+        })
+        .collect();
+    if response.drag_stopped() && !changes.iter().any(|c| c.done) {
+        edits.push(Edit::Cancel {
+            key: key.to_owned(),
+        });
+    }
+    edits
+}
+
+/// A curve's points from a list (`x0, y0, x1, y1, …`).
+pub fn curve_points(list: &[f64]) -> Vec<[f32; 2]> {
+    list.chunks_exact(2)
+        .map(|p| [p[0] as f32, p[1] as f32])
+        .collect()
+}
+
+/// A wheel's value from a list (hue in turns, chroma, luminance).
+pub fn wheel_value(list: &[f64]) -> WheelValue {
+    let at = |i: usize| list.get(i).copied().unwrap_or(0.0) as f32;
+    WheelValue {
+        hue: (at(0) * 360.0).rem_euclid(360.0),
+        chroma: at(1),
+        luminance: at(2),
+    }
+}
+
+fn floats(value: &Value) -> Vec<f64> {
+    match value {
+        Value::Floats(l) => l.clone(),
+        Value::Ints(l) => l.iter().map(|&x| x as f64).collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// The `curve` face, full: its label, then egui-pop's curve editor over
+/// the list's points, square in the slot; each change through the
+/// host's verdict ([`Drawings::curve_change`]).
+fn curve(
+    ui: &mut Ui,
+    key: &str,
+    control: &Control,
+    label: &str,
+    rect: Rect,
+    value: &mut Value,
+    drawings: &mut dyn Drawings,
+) -> Managed {
+    let setup = drawings.editor(key, control);
+    let list = floats(value);
+    let mut points = if list.len() >= 4 {
+        curve_points(&list)
+    } else {
+        curves::identity()
+    };
+    let defaults = match setup.default.as_ref().map(floats) {
+        Some(l) if l.len() >= 4 => curve_points(&l),
+        _ => curves::identity(),
+    };
+    let row = ui.spacing().interact_size.y;
+    let side = rect.width().min(rect.height() - row).max(48.0);
+    let out = ui
+        .vertical(|ui| {
+            let l = ui.text_role(TextRole::Body, label);
+            let mut editor = CurveEditor::new(&mut points, label)
+                .default_points(defaults)
+                .size(vec2(side, side))
+                .on_change(|c| drawings.curve_change(key, control, c));
+            if let Some(n) = setup.max_points {
+                editor = editor.max_points(n);
+            }
+            (l, editor.show(ui))
+        })
+        .inner;
+    let (l, out) = out;
+    let to_value = |p: &Vec<[f32; 2]>| {
+        Value::Floats(
+            p.iter()
+                .flat_map(|[x, y]| [f64::from(*x), f64::from(*y)])
+                .collect(),
+        )
+    };
+    if !out.changes.is_empty() {
+        *value = to_value(&points);
+    }
+    let edits = tool_edits(key, &out.changes, &out.response, to_value);
+    Managed {
+        label: Some(l),
+        ..Managed::of(edits, out.response)
+    }
+}
+
+/// The `colour-wheel` face, full: its label, then egui-pop's offset
+/// wheel and its luminance slider over the list's hue (in turns),
+/// chroma and luminance; each change through the host's verdict
+/// ([`Drawings::wheel_change`]).
+fn wheel(
+    ui: &mut Ui,
+    key: &str,
+    control: &Control,
+    label: &str,
+    rect: Rect,
+    value: &mut Value,
+    drawings: &mut dyn Drawings,
+) -> Managed {
+    let setup = drawings.editor(key, control);
+    let mut w = wheel_value(&floats(value));
+    let default = match setup.default.as_ref().map(floats) {
+        Some(l) if l.len() >= 3 => wheel_value(&l),
+        _ => WheelValue::default(),
+    };
+    let row = ui.spacing().interact_size.y;
+    // Room for the label above and the luminance slider below.
+    let side = rect.width().min(rect.height() - 2.0 * row).max(40.0);
+    let (l, out) = ui
+        .vertical(|ui| {
+            let l = ui.text_role(TextRole::Body, label);
+            let out = ColorWheel::offset(&mut w, label)
+                .default(default)
+                .size(side)
+                .on_change(|c| drawings.wheel_change(key, control, c))
+                .show(ui);
+            (l, out)
+        })
+        .inner;
+    let to_value = |w: &WheelValue| {
+        Value::Floats(vec![
+            f64::from(w.hue) / 360.0,
+            f64::from(w.chroma),
+            f64::from(w.luminance),
+        ])
+    };
+    if !out.changes.is_empty() {
+        *value = to_value(&w);
+    }
+    let edits = tool_edits(key, &out.changes, &out.response, to_value);
+    Managed {
+        label: Some(l),
+        ..Managed::of(edits, out.response)
+    }
+}
+
+/// The `folded-list` face: a chevron, the label and the list's summary
+/// (`12 points`); a click on the chevron or the summary opens its values
+/// under the card, or closes them.
+fn folded_list(ui: &mut Ui, key: &str, label: &str, folded: &Folded) -> Managed {
+    let id = ui.make_persistent_id(("hud-folded", key));
+    let open = ui.ctx().data(|m| m.get_temp::<bool>(id)).unwrap_or(false);
+    let (chevron_icon, hint) = if open {
+        (Icon::ChevronDown, folded.hide.as_str())
+    } else {
+        (Icon::ChevronRight, folded.show.as_str())
+    };
+    let chevron = ui
+        .add(
+            chevron_icon
+                .tone(icon::Tone::Muted)
+                .label(hint)
+                .sense_click(),
+        )
+        .tip(hint);
+    let l = ui.text_role(TextRole::Body, label);
+    let summary = ui
+        .add(
+            ToggleChip::new(&mut open.clone(), &folded.summary)
+                .name(format!("{label}: {}", folded.summary)),
+        )
+        .tip(hint);
+    if chevron.clicked() || summary.clicked() {
+        ui.ctx().data_mut(|m| m.insert_temp(id, !open));
+    }
+    let lines = folded.lines.iter().map(Line::new).collect();
+    Managed {
+        label: Some(l),
+        below: open.then_some(Below::Lines(lines)),
+        ..Managed::of(Vec::new(), summary)
     }
 }
 
@@ -1805,19 +2374,20 @@ mod tests {
     }
 
     #[test]
-    fn a_curve_and_a_wheel_draw_their_own_in_full_and_fall_back_where_it_cannot_go() {
+    fn a_curve_and_a_wheel_are_egui_pops_editors_in_full_and_rows_where_they_cannot_go() {
         let (r, c) = card_of_three();
-        // Full, with the host's drawings: its own.
+        // Full: egui-pop's editors, managed, whatever the host draws.
         let p = resolved(&r, &c, Layout::default());
-        let (out, _) = draw(&r, &p, &mut Own);
-        assert_eq!(out.drawn["curve"], Drawn::Integrated);
-        assert_eq!(out.drawn["lift"], Drawn::Integrated);
-        // Full, without drawings: the value type's renderer.
-        let (out, names) = draw(&r, &p, &mut NoDrawings);
-        assert_eq!(out.drawn["curve"], Drawn::Fallback(Fallback::ValueType));
-        assert!(names.iter().any(|n| n == "Curve 2 y"), "{names:?}");
-        assert!(names.iter().any(|n| n == "Lift Chroma"), "{names:?}");
-        // Compact (a row): the fallback, even with drawings.
+        for drawings in [&mut Own as &mut dyn Drawings, &mut NoDrawings] {
+            let (out, names) = draw(&r, &p, drawings);
+            assert_eq!(out.drawn["curve"], Drawn::Managed);
+            assert_eq!(out.drawn["lift"], Drawn::Managed);
+            assert!(names.iter().any(|n| n == "Curve"), "{names:?}");
+            assert!(names.iter().any(|n| n == "Lift"), "{names:?}");
+            assert!(!names.iter().any(|n| n == "Curve 2 y"), "{names:?}");
+            assert!(!names.iter().any(|n| n == "Lift Chroma"), "{names:?}");
+        }
+        // Compact (a row): the value type's rows.
         let compact = Layout::default()
             .represent("curve", Representation::Compact)
             .represent("lift", Representation::Compact);
@@ -1827,9 +2397,28 @@ mod tests {
             Some(Representation::Compact)
         );
         let (out, names) = draw(&r, &p, &mut Own);
-        assert_eq!(out.drawn["curve"], Drawn::Fallback(Fallback::ValueType));
-        assert_eq!(out.drawn["lift"], Drawn::Fallback(Fallback::ValueType));
+        assert_eq!(out.drawn["curve"], Drawn::Managed);
         assert!(names.iter().any(|n| n == "Curve 1 x"), "{names:?}");
+        assert!(names.iter().any(|n| n == "Lift Chroma"), "{names:?}");
+    }
+
+    #[test]
+    fn a_curve_declared_integrated_is_the_hosts_in_full_and_falls_back_elsewhere() {
+        let (r, c) = card_of_three();
+        let mut curve = r.get("implicit:node/n/curve").unwrap().clone();
+        for f in &mut curve.faces {
+            *f = f
+                .clone()
+                .integrated(Surface::Panel, Integration::integrated(Fallback::ValueType));
+        }
+        let mut r = r;
+        let _ = r.replace(curve);
+        let p = resolved(&r, &c, Layout::default());
+        let (out, _) = draw(&r, &p, &mut Own);
+        assert_eq!(out.drawn["curve"], Drawn::Integrated);
+        let (out, names) = draw(&r, &p, &mut NoDrawings);
+        assert_eq!(out.drawn["curve"], Drawn::Fallback(Fallback::ValueType));
+        assert!(names.iter().any(|n| n == "Curve 2 y"), "{names:?}");
     }
 
     #[test]
@@ -2020,8 +2609,9 @@ mod tests {
         let mut host = Dressed::default();
         let (out, names) = draw(&r, &p, &mut host);
         assert!(out.events.is_empty());
-        // The curve and the wheel fall back to their rows, renamed.
-        assert!(names.iter().any(|n| n == "curve renamed 2 y"), "{names:?}");
+        // The curve and the wheel are egui-pop's editors, renamed.
+        assert!(names.iter().any(|n| n == "curve renamed"), "{names:?}");
+        assert!(names.iter().any(|n| n == "lift renamed"), "{names:?}");
         for (key, _, changed, moved) in &host.dressed {
             assert!(*changed && *moved, "{key}: marks in the gutters");
         }

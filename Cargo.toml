@@ -61,13 +61,13 @@ repository.workspace = true
 
 [features]
 ## The renderers (panel rows, HUD chips) on egui-pop. Off, the crate is the
-## model, the registry and the value flow only, with no egui.
-render = ["dep:egui-pop"]
+## model, the registry and the value flow only, with no egui. The curve
+## and colour wheel faces draw egui-pop's editors (its `viewport`).
+render = ["dep:egui-pop", "egui-pop/viewport"]
 ## The bench: a shelf of a host's controls, composed onto a card and
 ## tried live (context bar, modes, presets, the placement and reason
-## pane), with egui-pop's curve editor and colour wheel for the
-## integrated controls.
-bench = ["render", "egui-pop/viewport"]
+## pane).
+bench = ["render"]
 
 [dependencies]
 serde.workspace = true

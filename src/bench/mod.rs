@@ -1574,7 +1574,18 @@ impl Bench {
         for e in edits {
             match e {
                 render::Edit::Number { key, change } => self.number(&key, &change),
-                render::Edit::Set { key, to, done } => self.set(&key, to, done),
+                render::Edit::Set { key, to, done } | render::Edit::Tool { key, to, done, .. } => {
+                    self.set(&key, to, done);
+                }
+                render::Edit::Cancel { key } => {
+                    if let Some((k, g)) = self.set_gesture.take() {
+                        if k == key {
+                            self.store.cancel(g);
+                        } else {
+                            self.set_gesture = Some((k, g));
+                        }
+                    }
+                }
             }
         }
     }

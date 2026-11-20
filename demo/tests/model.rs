@@ -141,7 +141,8 @@ fn the_page_draws_headless_with_its_fader_meter_and_fallbacks() {
     let drawn = &h.state().drawn;
     assert_eq!(drawn.get(GAIN), Some(&Drawn::Integrated), "{drawn:?}");
     assert_eq!(drawn.get(METER), Some(&Drawn::Integrated));
-    assert_eq!(drawn.get("eq"), Some(&Drawn::Integrated));
+    // The curve is egui-pop's editor, managed by egui_hud.
+    assert_eq!(drawn.get("eq"), Some(&Drawn::Managed));
     h.state_mut().load_preset("Narrow: knob").unwrap();
     h.run_steps(3);
     assert_eq!(
