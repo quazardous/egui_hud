@@ -1117,8 +1117,18 @@ pub fn part(
                 )
             }
             Fallback::ValueType => {
+                // A list's or a colour's own rows, not its face's editor.
+                let plain = matches!(
+                    control.value.value_type(),
+                    ValueType::Points | ValueType::Colour
+                );
                 let look = Look {
                     integration: Integration::Managed,
+                    variant: if plain {
+                        Some(VALUE_TYPE.to_owned())
+                    } else {
+                        look.variant.clone()
+                    },
                     ..look.clone()
                 };
                 with(
@@ -1237,6 +1247,10 @@ impl Managed {
         }
     }
 }
+
+/// The variant a value type's fallback is drawn in: its plain rows (a
+/// list's points, a colour's swatch and channels), not a face's editor.
+const VALUE_TYPE: &str = "value-type";
 
 /// A managed part by its value type, dressed by the host.
 fn managed(
@@ -1415,9 +1429,13 @@ fn managed(
         }
         ValueSpec::Other { stored } => match stored {
             ValueType::Points => {
-                let face = control
-                    .face_or_default(look.variant.as_deref())
-                    .map_or("point-list", |v| v.id.as_str());
+                let face = if look.variant.as_deref() == Some(VALUE_TYPE) {
+                    VALUE_TYPE
+                } else {
+                    control
+                        .face_or_default(look.variant.as_deref())
+                        .map_or("point-list", |v| v.id.as_str())
+                };
                 let full = look.representation == Representation::Full;
                 match face {
                     "curve" if full => curve(ui, key, control, label, rect, value, drawings),
@@ -1444,9 +1462,13 @@ fn managed(
                 }
             }
             ValueType::Colour => {
-                let face = control
-                    .face_or_default(look.variant.as_deref())
-                    .map_or("colour-wheel", |v| v.id.as_str());
+                let face = if look.variant.as_deref() == Some(VALUE_TYPE) {
+                    VALUE_TYPE
+                } else {
+                    control
+                        .face_or_default(look.variant.as_deref())
+                        .map_or("colour-wheel", |v| v.id.as_str())
+                };
                 if face == "colour-wheel" && look.representation == Representation::Full {
                     wheel(ui, key, control, label, rect, value, drawings)
                 } else {
@@ -2352,19 +2374,20 @@ mod tests {
     }
 
     #[test]
-    fn a_curve_and_a_wheel_draw_their_own_in_full_and_fall_back_where_it_cannot_go() {
+    fn a_curve_and_a_wheel_are_egui_pops_editors_in_full_and_rows_where_they_cannot_go() {
         let (r, c) = card_of_three();
-        // Full, with the host's drawings: its own.
+        // Full: egui-pop's editors, managed, whatever the host draws.
         let p = resolved(&r, &c, Layout::default());
-        let (out, _) = draw(&r, &p, &mut Own);
-        assert_eq!(out.drawn["curve"], Drawn::Integrated);
-        assert_eq!(out.drawn["lift"], Drawn::Integrated);
-        // Full, without drawings: the value type's renderer.
-        let (out, names) = draw(&r, &p, &mut NoDrawings);
-        assert_eq!(out.drawn["curve"], Drawn::Fallback(Fallback::ValueType));
-        assert!(names.iter().any(|n| n == "Curve 2 y"), "{names:?}");
-        assert!(names.iter().any(|n| n == "Lift Chroma"), "{names:?}");
-        // Compact (a row): the fallback, even with drawings.
+        for drawings in [&mut Own as &mut dyn Drawings, &mut NoDrawings] {
+            let (out, names) = draw(&r, &p, drawings);
+            assert_eq!(out.drawn["curve"], Drawn::Managed);
+            assert_eq!(out.drawn["lift"], Drawn::Managed);
+            assert!(names.iter().any(|n| n == "Curve"), "{names:?}");
+            assert!(names.iter().any(|n| n == "Lift"), "{names:?}");
+            assert!(!names.iter().any(|n| n == "Curve 2 y"), "{names:?}");
+            assert!(!names.iter().any(|n| n == "Lift Chroma"), "{names:?}");
+        }
+        // Compact (a row): the value type's rows.
         let compact = Layout::default()
             .represent("curve", Representation::Compact)
             .represent("lift", Representation::Compact);
@@ -2374,9 +2397,28 @@ mod tests {
             Some(Representation::Compact)
         );
         let (out, names) = draw(&r, &p, &mut Own);
-        assert_eq!(out.drawn["curve"], Drawn::Fallback(Fallback::ValueType));
-        assert_eq!(out.drawn["lift"], Drawn::Fallback(Fallback::ValueType));
+        assert_eq!(out.drawn["curve"], Drawn::Managed);
         assert!(names.iter().any(|n| n == "Curve 1 x"), "{names:?}");
+        assert!(names.iter().any(|n| n == "Lift Chroma"), "{names:?}");
+    }
+
+    #[test]
+    fn a_curve_declared_integrated_is_the_hosts_in_full_and_falls_back_elsewhere() {
+        let (r, c) = card_of_three();
+        let mut curve = r.get("implicit:node/n/curve").unwrap().clone();
+        for f in &mut curve.faces {
+            *f = f
+                .clone()
+                .integrated(Surface::Panel, Integration::integrated(Fallback::ValueType));
+        }
+        let mut r = r;
+        let _ = r.replace(curve);
+        let p = resolved(&r, &c, Layout::default());
+        let (out, _) = draw(&r, &p, &mut Own);
+        assert_eq!(out.drawn["curve"], Drawn::Integrated);
+        let (out, names) = draw(&r, &p, &mut NoDrawings);
+        assert_eq!(out.drawn["curve"], Drawn::Fallback(Fallback::ValueType));
+        assert!(names.iter().any(|n| n == "Curve 2 y"), "{names:?}");
     }
 
     #[test]
@@ -2567,8 +2609,9 @@ mod tests {
         let mut host = Dressed::default();
         let (out, names) = draw(&r, &p, &mut host);
         assert!(out.events.is_empty());
-        // The curve and the wheel fall back to their rows, renamed.
-        assert!(names.iter().any(|n| n == "curve renamed 2 y"), "{names:?}");
+        // The curve and the wheel are egui-pop's editors, renamed.
+        assert!(names.iter().any(|n| n == "curve renamed"), "{names:?}");
+        assert!(names.iter().any(|n| n == "lift renamed"), "{names:?}");
         for (key, _, changed, moved) in &host.dressed {
             assert!(*changed && *moved, "{key}: marks in the gutters");
         }
