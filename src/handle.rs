@@ -21,10 +21,53 @@
 //! overlay) draws each handle with its [`Look`] and owns its drag, and
 //! `render::declare_handle` registers the handle's edit area and hover
 //! card without taking that drag.
+//!
+//! # As data
+//!
+//! A handle declaration is serde data, so a host can read one from a file
+//! (a plugin's on-image tool, say). [`Handles`] is such a file: a
+//! `format` ([`FORMAT`]) and its handles. Each handle is an object with
+//! its `name`, its kind's fields tagged by `kind` (`point`, `radius`,
+//! `feather`, `angle`, `line`), and the handle's own `look`, `snap`,
+//! `reset` and `wheel`. Left out, those four take the kind's defaults
+//! ([`Handle::new`]); `null` says "none". A kind's `centre` left out is
+//! `x`, `y`; an angle's `offset` is 0 and `y-up` false; a line's
+//! `both-sides` is true.
+//!
+//! ```json
+//! {
+//!   "format": "egui_hud-handles/1",
+//!   "handles": [
+//!     { "name": "centre", "kind": "point",
+//!       "centre": { "x": "x", "y": "y" }, "look": "move" },
+//!     { "name": "radius", "kind": "radius", "radius": "radius" },
+//!     { "name": "feather", "kind": "feather",
+//!       "radius": "radius", "feather": "feather", "reset": 25.0 },
+//!     { "name": "beam", "kind": "angle",
+//!       "angle": { "name": "beam", "y-up": true },
+//!       "reach": { "param": "radius", "margin": 30.0 } }
+//!   ]
+//! }
+//! ```
+//!
+//! A `reach` is `{ "fixed": 80.0 }` or `{ "param": "radius", "margin":
+//! 30.0 }`. A `kind` this version does not know (a newer file's) reads as
+//! [`HandleKind::Unknown`], kept as it was read and written back
+//! unchanged, instead of failing the whole file: [`Handles::split`] sets
+//! it apart with its name, so the host leaves it out and says so. A known
+//! kind with a wrong field is still an error. [`HandleKind::Custom`] is
+//! code: it never serialises (an error) and never reads back (`custom` is
+//! an unknown kind like any other).
 
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use std::sync::Arc;
+
+use serde::{Deserialize, Serialize};
+
+mod serial;
+
+pub use serial::{FORMAT, Handles, Skipped, UnknownKind};
 
 /// A point on the surface, `x` right and `y` down (image pixels).
 pub type Point = [f64; 2];
@@ -125,7 +168,7 @@ pub fn wrap(deg: f64) -> f64 {
 }
 
 /// The two parameters of a point (a shape's centre or anchor).
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Centre {
     pub x: String,
     pub y: String,
@@ -153,14 +196,17 @@ impl Default for Centre {
 }
 
 /// An angle parameter, as a direction on the surface.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub struct AngleParam {
     pub name: String,
     /// Degrees added to the parameter for the handle's direction (an
     /// ellipse's second radius sits 90° past its rotation).
+    #[serde(default)]
     pub offset: f64,
     /// The parameter turns counter-clockwise on screen (mathematical
     /// angles, `y` up); otherwise clockwise, as `y` goes down.
+    #[serde(default)]
     pub y_up: bool,
 }
 
@@ -228,7 +274,7 @@ impl Reach {
 /// A feather in proportion to the larger of two radii, while a switch is
 /// on: the distance past the radius, as a share of it, times the larger
 /// radius.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Proportional {
     /// The switch (non-zero: on).
     pub switch: String,
@@ -292,8 +338,13 @@ pub enum HandleKind {
         width: String,
         both_sides: bool,
     },
-    /// A host's own maths.
+    /// A host's own maths. Code: it never serialises, and a file's
+    /// `custom` reads as [`HandleKind::Unknown`].
     Custom(Arc<dyn HandleMaths>),
+    /// A kind this version does not know, read from a newer declaration
+    /// and kept as it was read. Inert: it writes nothing and sits at the
+    /// origin; a host leaves it out ([`Handles::split`]).
+    Unknown(UnknownKind),
 }
 
 impl HandleKind {
@@ -349,7 +400,7 @@ impl HandleKind {
     }
 
     /// The kind's name (`point`, `radius`, `feather`, `angle`, `line`,
-    /// `custom`).
+    /// `custom`, `unknown`).
     pub fn name(&self) -> &'static str {
         match self {
             HandleKind::Point(_) => "point",
@@ -358,6 +409,7 @@ impl HandleKind {
             HandleKind::Angle { .. } => "angle",
             HandleKind::Line { .. } => "line",
             HandleKind::Custom(_) => "custom",
+            HandleKind::Unknown(_) => "unknown",
         }
     }
 
@@ -381,6 +433,7 @@ impl HandleKind {
             HandleKind::Angle { angle, .. } => vec![angle.name.clone()],
             HandleKind::Line { width, .. } => vec![width.clone()],
             HandleKind::Custom(m) => m.writes(),
+            HandleKind::Unknown(_) => Vec::new(),
         }
     }
 
@@ -393,6 +446,7 @@ impl HandleKind {
             | HandleKind::Angle { centre: c, .. }
             | HandleKind::Line { centre: c, .. } => c.at(p),
             HandleKind::Custom(m) => m.pivot(p),
+            HandleKind::Unknown(_) => [0.0, 0.0],
         }
     }
 
@@ -451,6 +505,7 @@ impl HandleKind {
                 add(centre.at(p), scale(normal(angle.direction_in(p)), d))
             }
             HandleKind::Custom(m) => m.position(p),
+            HandleKind::Unknown(_) => [0.0, 0.0],
         }
     }
 
@@ -502,6 +557,7 @@ impl HandleKind {
                 vec![(width.clone(), if *both_sides { 2.0 * d } else { d })]
             }
             HandleKind::Custom(m) => m.drag(start, to),
+            HandleKind::Unknown(_) => Vec::new(),
         }
     }
 }
@@ -514,7 +570,8 @@ fn normal(deg: f64) -> Point {
 }
 
 /// What Shift does to a handle's drag.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum Snap {
     /// Turns it around the handle's pivot to [`ANGLE_STEP`] steps.
     Angle,
@@ -523,7 +580,8 @@ pub enum Snap {
 }
 
 /// What the wheel over a handle does to its first parameter.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum Wheel {
     /// Scales it by a ratio, never below 0 (a size, a feather).
     Scale,
@@ -533,7 +591,8 @@ pub enum Wheel {
 
 /// How a handle looks and is hit, as egui-pop's overlay draws it
 /// (`render::overlay_kind` maps it).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum Look {
     /// The whole shape (its body).
     Move,
@@ -586,7 +645,7 @@ impl Handle {
                 (Look::Feather, None, Some(0.0), Some(Wheel::Scale))
             }
             HandleKind::Angle { .. } => (Look::Rotate, Some(Snap::Angle), None, Some(Wheel::Turn)),
-            HandleKind::Custom(_) => (Look::Point, None, None, None),
+            HandleKind::Custom(_) | HandleKind::Unknown(_) => (Look::Point, None, None, None),
         };
         Self {
             name: name.into(),

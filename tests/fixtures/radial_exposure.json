@@ -1,0 +1,25 @@
+{
+  "format": "egui_hud-handles/1",
+  "handles": [
+    {
+      "name": "centre",
+      "kind": "point",
+      "centre": { "x": "x", "y": "y" },
+      "look": "move"
+    },
+    {
+      "name": "radius",
+      "kind": "radius",
+      "centre": { "x": "x", "y": "y" },
+      "radius": "radius"
+    },
+    {
+      "name": "feather",
+      "kind": "feather",
+      "centre": { "x": "x", "y": "y" },
+      "radius": "radius",
+      "feather": "feather",
+      "reset": 25.0
+    }
+  ]
+}

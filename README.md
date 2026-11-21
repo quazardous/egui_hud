@@ -129,6 +129,14 @@ parameters and the parameters a drag writes; the handle adds Shift
 turn) and a double click's reset. An unusual shape (a path) brings its
 own maths through `HandleKind::Custom`.
 
+Handle declarations are serde data, so a host can read them from a file
+(a plugin's on-image tool): `handle::Handles` is a versioned file
+(`egui_hud-handles/1`) of handles tagged by `kind`, with readable field
+names (the format and an example are in the `handle` module's docs). A
+kind this version does not know is kept as it was read and set apart
+by `Handles::split`, so the other handles still load; `Custom`, being
+code, never serialises and never reads back.
+
 Over an image, egui-pop's viewport overlay draws the handles and owns
 their drags (begin, update, end, Escape, reset, wheel, the snap hook):
 `render::declare_handle` registers a handle's edit area and hover card
