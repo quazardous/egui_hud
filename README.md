@@ -38,6 +38,18 @@ dependency. The `bench` feature adds the bench: a shelf of a host's
 controls, composed onto a card and tried live (context bar, modes,
 presets, undo and redo, and why each control takes its form).
 
+## Design rule
+
+egui_hud exists so that whoever composes an interface, a person or an AI
+agent, takes as few presentation decisions as possible: they declare
+controls and compose cards, and the crate resolves how each control
+looks. Every feature is judged by that: it must reduce what the composer
+has to know (decisions to write, rules for one control, words to learn),
+not hand them new vocabulary. A presentation preference goes through what
+exists: the control (its purpose, feel and the faces it accepts), the kit
+and the context (slot size, surface), and the host (its drawings and
+configured kits).
+
 ## Controls and faces
 
 A **control** is a value (its type, range, unit, default) and a
