@@ -2338,7 +2338,7 @@ fn point_values(
             info
         });
         ui.ctx()
-            .accesskit_node_builder(id, |node| node.set_read_only());
+            .accesskit_node_builder(id, egui::accesskit::Node::set_read_only);
     }
 }
 
