@@ -775,12 +775,11 @@ impl Handle {
     /// Its value as text: `x, y` for a point or a host's own maths (where
     /// it sits), else its first parameter.
     pub fn value_text(&self, params: &dyn Params) -> String {
-        match self.value(params) {
-            Some(v) => format!("{v}"),
-            None => {
-                let [x, y] = self.position(params);
-                format!("{x}, {y}")
-            }
+        if let Some(v) = self.value(params) {
+            format!("{v}")
+        } else {
+            let [x, y] = self.position(params);
+            format!("{x}, {y}")
         }
     }
 }

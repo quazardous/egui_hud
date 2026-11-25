@@ -157,8 +157,8 @@ with hover sense only, so it never takes that drag, and
 the form that owns its drag, where no overlay does.
 
 A declared handle also takes the keyboard focus (never by a click):
-Tab and Shift+Tab walk the handles shown, the focused one draws the
-kit's focus ring, and AccessKit sees a node named by the area's control
+Tab and Shift+Tab walk the handles shown, the focused one gets
+egui-pop's focus ring, and AccessKit sees a node named by the area's control
 with its value. `render::handle_keys` reads the keys on it with the
 handle's model: arrows move a point (Shift: a larger step), Up/Down or
 `+`/`-` step a size, a feather or an angle (a slider for AccessKit, with

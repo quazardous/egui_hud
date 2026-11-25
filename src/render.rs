@@ -2197,7 +2197,7 @@ pub fn handle(ui: &mut Ui, rect: Rect, id: egui::Id, area: AreaSpec) -> egui::Re
 ///
 /// It also takes the keyboard focus (never by a click, which stays the
 /// overlay's): Tab and Shift+Tab walk the declared handles, and the
-/// focused one draws the kit's focus ring. For AccessKit it is a node
+/// focused one gets egui-pop's focus ring. For AccessKit it is a node
 /// named by the area's control, its value the area's value; with
 /// [`handle_keys`] it becomes a slider (a size, an angle) with its
 /// number. Inert, it takes no focus.
@@ -2213,25 +2213,12 @@ pub fn declare_handle(ui: &mut Ui, at: egui::Pos2, id: egui::Id, area: AreaSpec)
     areas::register(ui, &r, area);
     r.widget_info(|| {
         let mut info = egui::WidgetInfo::new(egui::accesskit::Role::Group);
-        info.label = name.clone();
-        info.current_text_value = value.clone();
+        info.label.clone_from(&name);
+        info.current_text_value.clone_from(&value);
         info
     });
-    if r.has_focus() {
-        use egui_pop::core::kit::{Kit, State};
-        let kit = Kit::of(ui.ctx());
-        let ring = kit.slider.style(State::REST.with(State::FOCUS, true));
-        let color = if ring.ring_width > 0.0 {
-            ring.ring_color
-        } else {
-            ui.visuals().selection.stroke.color
-        };
-        ui.painter().circle_stroke(
-            at,
-            HANDLE_TARGET / 2.0,
-            egui::Stroke::new(ring.ring_width.max(1.5), color),
-        );
-    }
+    // The ring is egui-pop's focus plugin's, drawn around a widget the
+    // keyboard focused: egui_hud paints no stroke of its own.
     r
 }
 
