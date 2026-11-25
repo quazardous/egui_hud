@@ -1111,6 +1111,7 @@ dependencies = [
  "egui-pop",
  "egui-pop-fit",
  "egui-pop-model",
+ "egui_kittest",
  "serde",
  "serde_json",
 ]

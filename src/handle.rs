@@ -20,7 +20,8 @@
 //! Nothing here draws or senses: the host's overlay (egui-pop's viewport
 //! overlay) draws each handle with its [`Look`] and owns its drag, and
 //! `render::declare_handle` registers the handle's edit area and hover
-//! card without taking that drag.
+//! card without taking that drag. It takes the keyboard focus, and
+//! `render::handle_keys` turns a key on it into writes ([`Handle::keyed`]).
 //!
 //! # As data
 //!
@@ -725,7 +726,92 @@ impl Handle {
         let to = self.reset?;
         Some((self.writes().into_iter().next()?, to))
     }
+
+    /// What `key` on the focused handle writes; `large` is Shift held. A
+    /// point, or a host's own maths, moves [`KEY_STEP`] along the arrow
+    /// ([`KEY_STEP_LARGE`] with Shift) and ignores [`Key::More`] and
+    /// [`Key::Less`]. Any other kind steps its first parameter: Up, Right
+    /// and More raise it, Down, Left and Less lower it; a size or a
+    /// feather by [`KEY_STEP`] and never below 0, an angle by a degree
+    /// ([`ANGLE_STEP`] with Shift), kept in (-180, 180]. Empty when the
+    /// key does nothing here.
+    pub fn keyed(&self, params: &dyn Params, key: Key, large: bool) -> Vec<(String, f64)> {
+        let step = if large { KEY_STEP_LARGE } else { KEY_STEP };
+        match &self.kind {
+            HandleKind::Point(_) | HandleKind::Custom(_) => {
+                let d = match key {
+                    Key::Left => [-step, 0.0],
+                    Key::Right => [step, 0.0],
+                    Key::Up => [0.0, -step],
+                    Key::Down => [0.0, step],
+                    Key::More | Key::Less => return Vec::new(),
+                };
+                self.drag(params, add(self.position(params), d))
+            }
+            HandleKind::Unknown(_) => Vec::new(),
+            HandleKind::Angle { angle, .. } => {
+                let step = if large { ANGLE_STEP } else { 1.0 };
+                let v = get(params, &angle.name) + key.sign() * step;
+                vec![(angle.name.clone(), wrap(v))]
+            }
+            HandleKind::Radius { radius: p, .. }
+            | HandleKind::Feather { feather: p, .. }
+            | HandleKind::Line { width: p, .. } => {
+                let v = get(params, p) + key.sign() * step;
+                vec![(p.clone(), v.max(0.0))]
+            }
+        }
+    }
+
+    /// The value a screen reader reads for it: its first parameter, or
+    /// `None` for a point (two values; see [`Handle::value_text`]).
+    pub fn value(&self, params: &dyn Params) -> Option<f64> {
+        match &self.kind {
+            HandleKind::Point(_) | HandleKind::Custom(_) | HandleKind::Unknown(_) => None,
+            _ => Some(get(params, self.writes().first()?)),
+        }
+    }
+
+    /// Its value as text: `x, y` for a point or a host's own maths (where
+    /// it sits), else its first parameter.
+    pub fn value_text(&self, params: &dyn Params) -> String {
+        match self.value(params) {
+            Some(v) => format!("{v}"),
+            None => {
+                let [x, y] = self.position(params);
+                format!("{x}, {y}")
+            }
+        }
+    }
 }
+
+/// A key on a focused handle ([`Handle::keyed`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Key {
+    Left,
+    Right,
+    Up,
+    Down,
+    /// `+`: raises a size or an angle.
+    More,
+    /// `-`: lowers a size or an angle.
+    Less,
+}
+
+impl Key {
+    /// +1 for a key that raises a value (Up, Right, More), else -1.
+    fn sign(self) -> f64 {
+        match self {
+            Key::Up | Key::Right | Key::More => 1.0,
+            Key::Down | Key::Left | Key::Less => -1.0,
+        }
+    }
+}
+
+/// A key moves a point, or steps a size, by this many surface units.
+pub const KEY_STEP: f64 = 1.0;
+/// With Shift, a key moves or steps by this many.
+pub const KEY_STEP_LARGE: f64 = 10.0;
 
 /// Where a handle dragged from `start` to `to` goes: Ctrl (`fine`) moves
 /// it a tenth of the pointer, then Shift (`shift`) holds it as `rule`

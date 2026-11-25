@@ -2194,11 +2194,125 @@ pub fn handle(ui: &mut Ui, rect: Rect, id: egui::Id, area: AreaSpec) -> egui::Re
 ///
 /// `at` is the handle's centre on screen; its area is egui-pop's
 /// overlay hit target ([`HANDLE_TARGET`] wide).
+///
+/// It also takes the keyboard focus (never by a click, which stays the
+/// overlay's): Tab and Shift+Tab walk the declared handles, and the
+/// focused one draws the kit's focus ring. For AccessKit it is a node
+/// named by the area's control, its value the area's value; with
+/// [`handle_keys`] it becomes a slider (a size, an angle) with its
+/// number. Inert, it takes no focus.
 pub fn declare_handle(ui: &mut Ui, at: egui::Pos2, id: egui::Id, area: AreaSpec) -> egui::Response {
     let rect = Rect::from_center_size(at, Vec2::splat(HANDLE_TARGET));
-    let r = ui.interact(rect, id, egui::Sense::hover());
+    let sense = if areas::inert(ui) {
+        egui::Sense::hover()
+    } else {
+        egui::Sense::hover() | egui::Sense::FOCUSABLE
+    };
+    let r = ui.interact(rect, id, sense);
+    let (name, value) = (area.control.clone(), area.value.clone());
     areas::register(ui, &r, area);
+    r.widget_info(|| {
+        let mut info = egui::WidgetInfo::new(egui::accesskit::Role::Group);
+        info.label = name.clone();
+        info.current_text_value = value.clone();
+        info
+    });
+    if r.has_focus() {
+        use egui_pop::core::kit::{Kit, State};
+        let kit = Kit::of(ui.ctx());
+        let ring = kit.slider.style(State::REST.with(State::FOCUS, true));
+        let color = if ring.ring_width > 0.0 {
+            ring.ring_color
+        } else {
+            ui.visuals().selection.stroke.color
+        };
+        ui.painter().circle_stroke(
+            at,
+            HANDLE_TARGET / 2.0,
+            egui::Stroke::new(ring.ring_width.max(1.5), color),
+        );
+    }
     r
+}
+
+/// What the keyboard asks of a focused declared handle this frame
+/// ([`handle_keys`]).
+#[derive(Clone, Debug, PartialEq)]
+pub enum HandleKeys {
+    /// One change, its writes as [`crate::handle::Handle::keyed`] gives
+    /// them: the host applies it as one undo step through the value flow
+    /// ([`crate::flow::apply`], cause [`Cause::Key`]).
+    Change(Vec<(String, f64)>),
+    /// Escape: the host cancels a change under way
+    /// ([`crate::flow::Gesture::cancel`]); the handle gives its focus up.
+    Cancel,
+}
+
+/// The keyboard on a handle [`declare_handle`] returned, read with its
+/// model and its parameters now: arrow keys move a point (Shift by a
+/// larger step), Up and Down or `+` and `-` step a size or an angle,
+/// Escape cancels ([`HandleKeys`]). The keys it reads are taken from the
+/// frame, so arrows do not also move the focus. It also gives the
+/// handle's AccessKit node its role (a slider for a size or an angle)
+/// and its number. `None` unless focused and a key asked something.
+pub fn handle_keys(
+    ui: &Ui,
+    response: &egui::Response,
+    handle: &crate::handle::Handle,
+    params: &dyn crate::handle::Params,
+) -> Option<HandleKeys> {
+    use crate::handle::Key;
+    if let Some(v) = handle.value(params) {
+        ui.ctx().accesskit_node_builder(response.id, |node| {
+            node.set_role(egui::accesskit::Role::Slider);
+            node.set_numeric_value(v);
+        });
+    }
+    if !response.has_focus() {
+        return None;
+    }
+    ui.memory_mut(|m| {
+        m.set_focus_lock_filter(
+            response.id,
+            egui::EventFilter {
+                horizontal_arrows: true,
+                vertical_arrows: true,
+                escape: true,
+                tab: false,
+            },
+        );
+    });
+    let keys = [
+        (egui::Key::ArrowLeft, Key::Left),
+        (egui::Key::ArrowRight, Key::Right),
+        (egui::Key::ArrowUp, Key::Up),
+        (egui::Key::ArrowDown, Key::Down),
+        (egui::Key::Plus, Key::More),
+        (egui::Key::Equals, Key::More),
+        (egui::Key::Minus, Key::Less),
+    ];
+    let asked = ui.input_mut(|i| {
+        if i.consume_key(egui::Modifiers::NONE, egui::Key::Escape) {
+            return Some(HandleKeys::Cancel);
+        }
+        let large = i.modifiers.shift;
+        let mods = if large {
+            egui::Modifiers::SHIFT
+        } else {
+            egui::Modifiers::NONE
+        };
+        for (k, key) in keys {
+            if i.consume_key(mods, k) {
+                let writes = handle.keyed(params, key, large);
+                return (!writes.is_empty()).then_some(HandleKeys::Change(writes));
+            }
+        }
+        None
+    });
+    if asked == Some(HandleKeys::Cancel) {
+        response.surrender_focus();
+    }
+    asked
 }
 
 /// A declared handle's area, in points: egui-pop's overlay hit target.
@@ -2784,5 +2898,144 @@ mod tests {
         for (look, kind) in all {
             assert_eq!(overlay_kind(look), kind);
         }
+    }
+}
+
+#[cfg(test)]
+mod handle_keys_tests {
+    use super::*;
+    use crate::flow::{self, Cause, OneShot, Steps};
+    use crate::handle::{Centre, Handle, HandleKind};
+    use crate::registry::implicit;
+    use crate::value::{MemoryStore, ParamDescriptor, ValueSource};
+    use egui::accesskit::Role;
+    use egui_kittest::Harness;
+    use egui_kittest::kittest::Queryable as _;
+
+    /// A mask's radius handle over a store: its keyboard changes go
+    /// through the value flow, Escape counted.
+    struct Mask {
+        store: MemoryStore,
+        cancels: usize,
+    }
+
+    fn radius(s: &MemoryStore) -> f64 {
+        s.get("radius").and_then(|v| v.as_f64()).unwrap()
+    }
+
+    fn harness() -> Harness<'static, Mask> {
+        let mut store = MemoryStore::new();
+        store.declare("radius", ParamDescriptor::float("radius", 0.0, 500.0, 20.0));
+        let handle = Handle::new(
+            "radius",
+            HandleKind::radius(Centre::new("x", "y"), "radius"),
+        );
+        Harness::new_ui_state(
+            move |ui, m: &mut Mask| {
+                let r = radius(&m.store);
+                let params = [("x", 50.0), ("y", 50.0), ("radius", r)];
+                let resp = declare_handle(
+                    ui,
+                    pos2(50.0 + r as f32, 50.0),
+                    egui::Id::unique("mask.radius"),
+                    AreaSpec::edit("mask.radius", "Mask radius")
+                        .value(format!("{r} px"))
+                        .path("radius"),
+                );
+                match handle_keys(ui, &resp, &handle, &params) {
+                    Some(HandleKeys::Change(writes)) => {
+                        let d = &m.store.params("radius")[0].descriptor;
+                        let control = implicit("radius", d);
+                        for (path, to) in writes {
+                            flow::apply(
+                                &mut m.store,
+                                &Steps::new(),
+                                &control,
+                                &path,
+                                OneShot {
+                                    to,
+                                    force: false,
+                                    origin: "keys",
+                                    cause: Cause::Key,
+                                    device: "keys",
+                                },
+                            )
+                            .unwrap();
+                        }
+                    }
+                    Some(HandleKeys::Cancel) => m.cancels += 1,
+                    None => {}
+                }
+            },
+            Mask { store, cancels: 0 },
+        )
+    }
+
+    #[test]
+    fn tab_reaches_a_handle_and_arrows_change_it_one_step_each() {
+        let mut h = harness();
+        h.run();
+        assert!(!h.get_by_label("Mask radius").is_focused());
+        h.key_press(egui::Key::Tab);
+        h.run();
+        assert!(
+            h.get_by_label("Mask radius").is_focused(),
+            "Tab reaches the handle"
+        );
+        h.key_press(egui::Key::ArrowUp);
+        h.run();
+        assert_eq!(radius(&h.state().store), 21.0);
+        assert_eq!(
+            h.state().store.undo_steps().len(),
+            1,
+            "one key, one undo step"
+        );
+        h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::ArrowDown);
+        h.run();
+        assert_eq!(radius(&h.state().store), 11.0, "Shift: a larger step");
+        assert_eq!(h.state().store.undo_steps().len(), 2);
+        let node = h.get_by_label("Mask radius");
+        assert!(node.is_focused(), "arrows do not move the focus away");
+        assert_eq!(node.value().as_deref(), Some("11 px"));
+        h.get_by(|n| {
+            n.role() == Role::Slider
+                && n.label().as_deref() == Some("Mask radius")
+                && n.numeric_value() == Some(11.0)
+        });
+        h.key_press(egui::Key::Escape);
+        h.run();
+        assert_eq!(h.state().cancels, 1);
+        assert!(
+            !h.get_by_label("Mask radius").is_focused(),
+            "Escape gives the focus up"
+        );
+    }
+
+    #[test]
+    fn keys_step_a_point_a_size_and_an_angle() {
+        use crate::handle::{AngleParam, Key, Reach};
+        let p = [("x", 10.0), ("y", 10.0), ("r", 0.5), ("a", 179.5)];
+        let point = Handle::new("c", HandleKind::point(Centre::new("x", "y")));
+        assert_eq!(
+            point.keyed(&p, Key::Up, true),
+            vec![("x".into(), 10.0), ("y".into(), 0.0)]
+        );
+        assert!(point.keyed(&p, Key::More, false).is_empty());
+        let size = Handle::new("r", HandleKind::radius(Centre::new("x", "y"), "r"));
+        assert_eq!(size.keyed(&p, Key::Less, false), vec![("r".into(), 0.0)]);
+        let angle = Handle::new(
+            "a",
+            HandleKind::angle(
+                Centre::new("x", "y"),
+                AngleParam::new("a"),
+                Reach::Fixed(50.0),
+            ),
+        );
+        assert_eq!(
+            angle.keyed(&p, Key::Right, false),
+            vec![("a".into(), -179.5)]
+        );
+        assert_eq!(point.value_text(&p), "10, 10");
+        assert_eq!(size.value(&p), Some(0.5));
     }
 }
