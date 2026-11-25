@@ -77,5 +77,9 @@ egui-pop-fit.workspace = true
 egui-pop-model.workspace = true
 egui-pop = { workspace = true, optional = true }
 
+[dev-dependencies]
+# Keyboard and AccessKit tests of the renderers (by accessible name).
+egui_kittest = "0.37"
+
 [lints]
 workspace = true
