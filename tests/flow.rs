@@ -286,3 +286,65 @@ fn a_committed_step_undoes_and_redoes() {
     g.commit(&mut s, &steps, Cause::Drag, "pointer");
     assert!(s.redo_steps().is_empty());
 }
+
+#[test]
+fn several_values_commit_as_one_undo_step() {
+    let mut s = store();
+    let mut steps = Steps::new();
+    steps.before("level no more than 0.8", |e| {
+        if e.path == LEVEL && e.to > 0.8 {
+            Verdict::Redirect(0.8)
+        } else {
+            Verdict::Go
+        }
+    });
+    let ask = || flow::MultiShot {
+        force: false,
+        origin: "keys",
+        cause: Cause::Key,
+        device: "keys",
+    };
+    let writes = [(GAIN.to_owned(), 3.0), (LEVEL.to_owned(), 0.9)];
+    let out = flow::apply_multi(&mut s, &steps, &gain(), &writes, ask()).unwrap();
+    assert_eq!(
+        out,
+        flow::MultiOutcome::Committed {
+            changes: vec![
+                flow::PathChange {
+                    path: GAIN.into(),
+                    from: 0.0,
+                    to: 3.0
+                },
+                flow::PathChange {
+                    path: LEVEL.into(),
+                    from: 0.5,
+                    to: 0.8
+                },
+            ]
+        }
+    );
+    assert_eq!(s.undo_steps(), ["Gain"], "one step for both values");
+    assert_eq!(value(&s, LEVEL), 0.8, "the redirect holds for its path");
+    s.undo();
+    assert_eq!((value(&s, GAIN), value(&s, LEVEL)), (0.0, 0.5));
+
+    // A veto on one value puts both back.
+    steps.before("no gain above 2", |e| {
+        if e.path == GAIN && e.to > 2.0 {
+            Verdict::Veto
+        } else {
+            Verdict::Go
+        }
+    });
+    let out = flow::apply_multi(&mut s, &steps, &gain(), &writes, ask()).unwrap();
+    assert_eq!(out, flow::MultiOutcome::Vetoed);
+    assert_eq!((value(&s, GAIN), value(&s, LEVEL)), (0.0, 0.5));
+    assert_eq!(s.undo_steps().len(), 0);
+
+    // Nothing moved: no step; an unknown path is refused.
+    let same = [(GAIN.to_owned(), 0.0)];
+    let out = flow::apply_multi(&mut s, &steps, &gain(), &same, ask()).unwrap();
+    assert_eq!(out, flow::MultiOutcome::Unchanged);
+    let bad = [("node/amp/nope".to_owned(), 1.0)];
+    assert!(flow::apply_multi(&mut s, &steps, &gain(), &bad, ask()).is_err());
+}
