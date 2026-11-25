@@ -2228,7 +2228,8 @@ pub fn declare_handle(ui: &mut Ui, at: egui::Pos2, id: egui::Id, area: AreaSpec)
 pub enum HandleKeys {
     /// One change, its writes as [`crate::handle::Handle::keyed`] gives
     /// them: the host applies it as one undo step through the value flow
-    /// ([`crate::flow::apply`], cause [`Cause::Key`]).
+    /// ([`crate::flow::apply_multi`], cause [`Cause::Key`]): a point
+    /// writes its x and y together.
     Change(Vec<(String, f64)>),
     /// Escape: the host cancels a change under way
     /// ([`crate::flow::Gesture::cancel`]); the handle gives its focus up.
@@ -2241,9 +2242,11 @@ pub enum HandleKeys {
 /// Escape cancels ([`HandleKeys`]). The keys it reads are taken from the
 /// frame, so arrows do not also move the focus. It also gives the
 /// handle's AccessKit node its role (a slider for a size or an angle)
-/// and its number. `None` unless focused and a key asked something.
+/// and its number; a point (or a host's own maths) keeps its group, with
+/// two read-only children named `x` and `y` holding its position. `None`
+/// unless focused and a key asked something.
 pub fn handle_keys(
-    ui: &Ui,
+    ui: &mut Ui,
     response: &egui::Response,
     handle: &crate::handle::Handle,
     params: &dyn crate::handle::Params,
@@ -2254,6 +2257,8 @@ pub fn handle_keys(
             node.set_role(egui::accesskit::Role::Slider);
             node.set_numeric_value(v);
         });
+    } else {
+        point_values(ui, response, handle, params);
     }
     if !response.has_focus() {
         return None;
@@ -2300,6 +2305,41 @@ pub fn handle_keys(
         response.surrender_focus();
     }
     asked
+}
+
+/// A point's x and y as two AccessKit children of its handle's node: a
+/// child `Ui` parented to the handle for AccessKit only, with two widgets
+/// that sense nothing and take no room. Nothing is drawn.
+fn point_values(
+    ui: &mut Ui,
+    response: &egui::Response,
+    handle: &crate::handle::Handle,
+    params: &dyn crate::handle::Params,
+) {
+    let [x, y] = handle.position(params);
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "an AccessKit-only child under the handle's node: no layout, nothing drawn"
+    )]
+    let child = ui.new_child(
+        egui::UiBuilder::new()
+            .id_salt(response.id.with("values"))
+            .max_rect(Rect::from_center_size(response.rect.center(), Vec2::ZERO))
+            .accessibility_parent(response.id),
+    );
+    for (axis, v) in [("x", x), ("y", y)] {
+        let id = response.id.with(axis);
+        let rect = Rect::from_center_size(response.rect.center(), Vec2::ZERO);
+        let r = child.interact(rect, id, egui::Sense::empty());
+        r.widget_info(|| {
+            let mut info = egui::WidgetInfo::new(egui::accesskit::Role::Slider);
+            info.label = Some(axis.to_owned());
+            info.value = Some(v);
+            info
+        });
+        ui.ctx()
+            .accesskit_node_builder(id, egui::accesskit::Node::set_read_only);
+    }
 }
 
 /// A declared handle's area, in points: egui-pop's overlay hit target.
@@ -2995,6 +3035,112 @@ mod handle_keys_tests {
         assert!(
             !h.get_by_label("Mask radius").is_focused(),
             "Escape gives the focus up"
+        );
+    }
+
+    /// A mask's centre point over a store: one key, applied with
+    /// [`flow::apply_multi`]; the outcomes kept.
+    struct Centred {
+        store: MemoryStore,
+        outcomes: Vec<flow::MultiOutcome>,
+    }
+
+    fn at(s: &MemoryStore, p: &str) -> f64 {
+        s.get(p).and_then(|v| v.as_f64()).unwrap()
+    }
+
+    fn point_harness() -> Harness<'static, Centred> {
+        let mut store = MemoryStore::new();
+        store.declare("x", ParamDescriptor::float("x", 0.0, 500.0, 40.0));
+        store.declare("y", ParamDescriptor::float("y", 0.0, 500.0, 30.0));
+        let handle = Handle::new("centre", HandleKind::point(Centre::new("x", "y")));
+        Harness::new_ui_state(
+            move |ui, m: &mut Centred| {
+                let (x, y) = (at(&m.store, "x"), at(&m.store, "y"));
+                let params = [("x", x), ("y", y)];
+                let resp = declare_handle(
+                    ui,
+                    pos2(x as f32, y as f32),
+                    egui::Id::unique("mask.centre"),
+                    AreaSpec::edit("mask.centre", "Mask centre")
+                        .value(format!("x {x}, y {y}"))
+                        .path("x"),
+                );
+                if let Some(HandleKeys::Change(writes)) = handle_keys(ui, &resp, &handle, &params) {
+                    let d = &m.store.params("x")[0].descriptor;
+                    let control = implicit("x", d);
+                    let out = flow::apply_multi(
+                        &mut m.store,
+                        &Steps::new(),
+                        &control,
+                        &writes,
+                        flow::MultiShot {
+                            force: false,
+                            origin: "keys",
+                            cause: Cause::Key,
+                            device: "keys",
+                        },
+                    )
+                    .unwrap();
+                    m.outcomes.push(out);
+                }
+            },
+            Centred {
+                store,
+                outcomes: Vec::new(),
+            },
+        )
+    }
+
+    #[test]
+    fn one_arrow_on_a_point_is_one_commit_of_x_and_y() {
+        let mut h = point_harness();
+        h.run();
+        h.key_press(egui::Key::Tab);
+        h.run();
+        assert!(h.get_by_label("Mask centre").is_focused());
+        h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::ArrowUp);
+        h.run();
+        let s = &h.state().store;
+        assert_eq!((at(s, "x"), at(s, "y")), (40.0, 20.0));
+        assert_eq!(s.undo_steps().len(), 1, "one key, one undo step");
+        assert_eq!(h.state().outcomes.len(), 1, "one commit");
+        let flow::MultiOutcome::Committed { changes } = &h.state().outcomes[0] else {
+            panic!("committed: {:?}", h.state().outcomes);
+        };
+        assert_eq!(changes.len(), 1, "x did not move: only y changed");
+        assert_eq!((changes[0].path.as_str(), changes[0].to), ("y", 20.0));
+        h.key_press(egui::Key::ArrowRight);
+        h.run();
+        assert_eq!(h.state().store.undo_steps().len(), 2);
+        // Undo takes the whole point back to where the key found it.
+        h.state_mut().store.undo();
+        let s = &h.state().store;
+        assert_eq!((at(s, "x"), at(s, "y")), (40.0, 20.0));
+    }
+
+    #[test]
+    fn a_point_shows_x_and_y_to_accesskit() {
+        use egui_kittest::kittest::NodeT as _;
+        let mut h = point_harness();
+        h.run();
+        let node =
+            h.get_by(|n| n.role() == Role::Group && n.label().as_deref() == Some("Mask centre"));
+        assert_eq!(node.value().as_deref(), Some("x 40, y 30"));
+        // Under an unnamed container (the child `Ui`), which readers skip.
+        let values: Vec<_> = node
+            .children_recursive()
+            .map(|c| c.accesskit_node())
+            .filter(|c| c.label().is_some())
+            .map(|c| (c.label(), c.role(), c.numeric_value(), c.is_read_only()))
+            .collect();
+        assert_eq!(
+            values,
+            [
+                (Some("x".into()), Role::Slider, Some(40.0), true),
+                (Some("y".into()), Role::Slider, Some(30.0), true),
+            ],
+            "x and y are read-only values under the handle"
         );
     }
 

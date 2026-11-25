@@ -13,6 +13,11 @@
 //!
 //! One-shot inputs (an agent's set, a nudge, a reset) are a gesture begun
 //! and committed at once ([`apply`]).
+//!
+//! A change that writes several values together (a point's x and y) is
+//! one gesture too: [`begin_multi`] and [`MultiGesture`], or
+//! [`apply_multi`] for one shot. It ends as one undo step; a veto on any
+//! of its values puts them all back.
 
 use std::sync::{Arc, Mutex};
 
@@ -281,6 +286,183 @@ pub fn apply<S: ValueStore>(
     if let Err(e) = g.preview(store, ask.to, ask.force) {
         g.cancel(store);
         return Err(e);
+    }
+    Ok(g.commit(store, steps, ask.cause, ask.device))
+}
+
+/// One value of a change of several ([`MultiOutcome::Committed`]).
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct PathChange {
+    pub path: String,
+    pub from: f64,
+    pub to: f64,
+}
+
+/// How a gesture of several values ended.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(tag = "outcome", rename_all = "kebab-case")]
+pub enum MultiOutcome {
+    /// One undo step; the values that changed, in the gesture's order.
+    Committed { changes: Vec<PathChange> },
+    /// Vetoed by a hook on one of its values: they all went back.
+    Vetoed,
+    /// Nothing changed: no step.
+    Unchanged,
+}
+
+/// An open gesture of one control on several paths (a point's x and y),
+/// on a store whose gesture handle is `G` and origin `O`: one undo step
+/// when it commits.
+#[derive(Debug)]
+pub struct MultiGesture<G, O> {
+    id: G,
+    control: String,
+    from: Vec<(String, f64)>,
+    origin: O,
+}
+
+/// The multi-value gesture type of a store.
+pub type MultiGestureOf<S> = MultiGesture<<S as ValueStore>::Gesture, <S as ValueStore>::Origin>;
+
+/// Begins a gesture of `control` on several `paths` at once, as `origin`.
+pub fn begin_multi<S: ValueStore, P: AsRef<str>>(
+    store: &mut S,
+    control: &Control,
+    paths: &[P],
+    origin: S::Origin,
+) -> Result<MultiGestureOf<S>, String> {
+    if control.kind == crate::model::Kind::Indicator {
+        return Err(format!("`{}` is an indicator: it is read-only", control.id));
+    }
+    let mut from = Vec::with_capacity(paths.len());
+    for p in paths {
+        let path = p.as_ref();
+        let v = store
+            .get(path)
+            .ok_or_else(|| format!("no value at `{path}`"))?
+            .as_f64()
+            .ok_or_else(|| format!("`{path}` is not a number"))?;
+        if !from.iter().any(|(q, _): &(String, f64)| q == path) {
+            from.push((path.to_owned(), v));
+        }
+    }
+    let id = store.begin(&origin, &control.label);
+    Ok(MultiGesture {
+        id,
+        control: control.id.clone(),
+        from,
+        origin,
+    })
+}
+
+impl<G: Copy, O: Clone> MultiGesture<G, O> {
+    /// The paths and their values before the gesture.
+    pub fn from(&self) -> &[(String, f64)] {
+        &self.from
+    }
+
+    /// Writes one of its paths inside the gesture (forced past the soft
+    /// range when asked); returns what the store holds. A path the
+    /// gesture was not begun on is refused.
+    pub fn preview<S: ValueStore<Gesture = G, Origin = O>>(
+        &self,
+        store: &mut S,
+        path: &str,
+        v: f64,
+        force: bool,
+    ) -> Result<f64, String> {
+        if !self.from.iter().any(|(p, _)| p == path) {
+            return Err(format!("`{path}` is not in this gesture"));
+        }
+        let value = to_value(store, path, v);
+        let applied = store.preview(self.id, path, value, &self.origin, force)?;
+        Ok(applied.as_f64().unwrap_or(v))
+    }
+
+    /// Ends the gesture: runs the `controls.change` step on each value
+    /// that changed (one event per path), then makes one undo step. A
+    /// veto on any value puts them all back; a redirect holds for its
+    /// own path.
+    pub fn commit<S: ValueStore<Gesture = G, Origin = O>>(
+        self,
+        store: &mut S,
+        steps: &Steps,
+        cause: Cause,
+        device: &str,
+    ) -> MultiOutcome {
+        let mut changes = Vec::new();
+        for (path, from) in &self.from {
+            let to = store.get(path).and_then(|v| v.as_f64()).unwrap_or(*from);
+            if to == *from {
+                continue;
+            }
+            let event = ChangeEvent {
+                control: self.control.clone(),
+                node: node_of(path),
+                path: path.clone(),
+                from: *from,
+                to,
+                cause,
+                device: device.into(),
+            };
+            let to = match steps.run(&event) {
+                Verdict::Veto => {
+                    store.cancel(self.id);
+                    return MultiOutcome::Vetoed;
+                }
+                Verdict::Go => to,
+                Verdict::Redirect(v) => self.preview(store, path, v, false).unwrap_or(to),
+            };
+            if to != *from {
+                changes.push(PathChange {
+                    path: path.clone(),
+                    from: *from,
+                    to,
+                });
+            }
+        }
+        if changes.is_empty() {
+            store.cancel(self.id);
+            return MultiOutcome::Unchanged;
+        }
+        store.commit(self.id);
+        MultiOutcome::Committed { changes }
+    }
+
+    /// Gives the gesture up: the values before it come back, no undo step.
+    pub fn cancel<S: ValueStore<Gesture = G, Origin = O>>(self, store: &mut S) -> usize {
+        store.cancel(self.id)
+    }
+}
+
+/// A one-shot change of several values: who asks and why (the values
+/// are [`apply_multi`]'s writes).
+#[derive(Clone, Debug, PartialEq)]
+pub struct MultiShot<'a, O> {
+    /// Past the soft range, up to the hard one.
+    pub force: bool,
+    pub origin: O,
+    pub cause: Cause,
+    pub device: &'a str,
+}
+
+/// A one-shot change of several values as one undo step: begin on every
+/// path of `writes`, write them, commit. What a key on a focused point
+/// handle gives ([`crate::render::HandleKeys::Change`]) goes through it.
+pub fn apply_multi<S: ValueStore>(
+    store: &mut S,
+    steps: &Steps,
+    control: &Control,
+    writes: &[(String, f64)],
+    ask: MultiShot<'_, S::Origin>,
+) -> Result<MultiOutcome, String> {
+    let paths: Vec<&str> = writes.iter().map(|(p, _)| p.as_str()).collect();
+    let g = begin_multi(store, control, &paths, ask.origin)?;
+    for (path, to) in writes {
+        if let Err(e) = g.preview(store, path, *to, ask.force) {
+            g.cancel(store);
+            return Err(e);
+        }
     }
     Ok(g.commit(store, steps, ask.cause, ask.device))
 }
